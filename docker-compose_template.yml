@@ -1,53 +1,89 @@
+# Production example: Django (Gunicorn) + Postgres + Caddy + Cloudflare Tunnel
+#
+# Usage:
+#   cp .env.example .env     # fill in real values
+#   docker compose -f docker-compose.example.yml up -d --build
+#
+# First run / after model changes (migrations are NOT run automatically in prod):
+#   docker compose exec web python manage.py migrate
+#   docker compose exec web python manage.py createsuperuser
+#
+# Note: `configs: content:` needs Docker Compose >= 2.23.
+
 services:
   web:
     build:
       context: .
       dockerfile: Dockerfile
-
     command: >
       sh -c "python manage.py collectstatic --noinput &&
-             gunicorn felsen_mit_kids.wsgi:application --bind 0.0.0.0:8000"
-    # Development alternative: comment out the Gunicorn command above and uncomment this:
-    # command: python manage.py runserver 0.0.0.0:8000
-
-    ports:
-      - "8000:8000"
-
+             gunicorn felsen_mit_kids.wsgi:application
+             --bind 0.0.0.0:8000 --workers 3 --access-logfile -"
     environment:
-      DJANGO_DEBUG: "True"
-      DJANGO_SECRET_KEY: "dev-only-change-me"
+      DJANGO_DEBUG: "False"
+      DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY:?set DJANGO_SECRET_KEY in .env}
+      DJANGO_ALLOWED_HOSTS: ${DJANGO_ALLOWED_HOSTS}
+      DJANGO_CSRF_TRUSTED_ORIGINS: ${DJANGO_CSRF_TRUSTED_ORIGINS}
 
-      POSTGRES_DB: familienfelsen
-      POSTGRES_USER: familienfelsen
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB:-familienfelsen}
+      POSTGRES_USER: ${POSTGRES_USER:-familienfelsen}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
       POSTGRES_HOST: db
       POSTGRES_PORT: "5432"
-
     volumes:
-      - .:/app
+      # Code is baked into the image in prod -> only persist user uploads.
       - ./data/media:/app/media
-
     depends_on:
       db:
         condition: service_healthy
+    restart: unless-stopped
+
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    configs:
+      - source: caddyfile
+        target: /etc/caddy/Caddyfile
+    volumes:
+      - ./data/caddy/data:/data
+      - ./data/caddy/config:/config
+      - ./data/media:/srv/media:ro
+    depends_on:
+      - web
+
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    restart: unless-stopped
+    command: tunnel --no-autoupdate run --token ${CLOUDFLARE_TUNNEL_TOKEN:?set CLOUDFLARE_TUNNEL_TOKEN in .env}
+    depends_on:
+      - caddy
 
   db:
     image: postgres:17
-
     environment:
-      POSTGRES_DB: familienfelsen
-      POSTGRES_USER: familienfelsen
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-
+      POSTGRES_DB: ${POSTGRES_DB:-familienfelsen}
+      POSTGRES_USER: ${POSTGRES_USER:-familienfelsen}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
     volumes:
       - ./data/postgres:/var/lib/postgresql/data
-
     healthcheck:
-      test:
-        [
-          "CMD-SHELL",
-          "pg_isready -U familienfelsen -d familienfelsen"
-        ]
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
       interval: 5s
       timeout: 5s
       retries: 5
+    restart: unless-stopped
+
+configs:
+  caddyfile:
+    content: |
+      # Plain HTTP on purpose: TLS is terminated by Cloudflare.
+      http://example.com, http://www.example.com {
+          encode zstd gzip
+
+          handle_path /media/* {
+              root * /srv/media
+              file_server
+          }
+
+          reverse_proxy web:8000
+      }

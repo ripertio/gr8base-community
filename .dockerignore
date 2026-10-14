@@ -1,6 +1,5 @@
 # Runtime data
-data/postgres/
-data/media/
+data/
 
 # Git
 .git/

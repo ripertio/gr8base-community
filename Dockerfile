@@ -13,4 +13,4 @@ COPY . .
 
 EXPOSE 8000
 
-CMD ["gunicorn", "felsen_mit_kids.wsgi:application", "--bind", "0.0.0.0:8000"]
+CMD ["gunicorn", "gr8base.wsgi:application", "--bind", "0.0.0.0:8000"]

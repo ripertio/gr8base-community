@@ -6,7 +6,7 @@ import sys
 
 def main():
     """Run administrative tasks."""
-    os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'felsen_mit_kids.settings')
+    os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'gr8base.settings')
     try:
         from django.core.management import execute_from_command_line
     except ImportError as exc:

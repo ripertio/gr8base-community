@@ -9,33 +9,31 @@ Documentation – gr8base community
 {% block content %}
 
 
-<header>
-
-    <h1>
-        Documentation
-    </h1>
-
-    <ul>
-        <li>This site is a work in progress.</li>
-        <li>Follow development at https://github.com/ripertio/felsen-mit-kids</li>
-        <li>You can report bugs and suggest improvements by opening an issue there.</li>
-    </ul>
-
-</header>
 
 
+{% if intro %}
+<section>
+    {{ intro|safe }}
+</section>
+{% endif %}
+
+
+{% if pages %}
 <section>
 
     <h2>
-        Contribute data
+        Guides
     </h2>
 
-    <p>
-        gr8base community aims to grow through the experience of its community.
-        Registered users can add crags, update information, and upload photos.
-    </p>
+    <ul>
+        {% for page in pages %}
+        <li><a href="{% url 'doc_page' page.slug %}">{{ page.title }}</a></li>
+        {% endfor %}
+    </ul>
 
 </section>
+{% endif %}
+
 
 
 {% endblock %}

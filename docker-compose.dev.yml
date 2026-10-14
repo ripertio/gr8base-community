@@ -14,7 +14,7 @@
 #
 # Tip: `export COMPOSE_FILE=docker-compose.dev.yml` saves you the -f flag.
 
-name: familienfelsen-dev   # separate project name -> never collides with prod containers/volumes
+name: gr8base-dev   # separate project name -> never collides with prod containers/volumes
 
 services:
   web:
@@ -29,6 +29,8 @@ services:
       DJANGO_SECRET_KEY: dev-only-insecure-key-do-not-use-in-prod
       DJANGO_ALLOWED_HOSTS: localhost,127.0.0.1,0.0.0.0
       DJANGO_CSRF_TRUSTED_ORIGINS: http://localhost:8000,http://127.0.0.1:8000
+      RESEND_API_KEY: ${RESEND_API_KEY:-}
+
 
       POSTGRES_DB: familienfelsen
       POSTGRES_USER: familienfelsen

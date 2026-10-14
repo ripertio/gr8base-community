@@ -7,3 +7,4 @@ pillow-heif
 django-allauth
 argon2-cffi
 django-anymail[resend]
+markdown

@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+
+
+{% block title %}
+{{ title }} – gr8base community
+{% endblock %}
+
+
+{% block content %}
+
+{% if toc %}
+<details open>
+    <summary>On this page</summary>
+    <nav aria-label="On this page">
+        {{ toc|safe }}
+    </nav>
+</details>
+{% endif %}
+
+<article>
+    {{ content|safe }}
+</article>
+
+<p>
+    <a href="{% url 'docs' %}">&larr; Back to documentation</a>
+</p>
+
+{% endblock %}

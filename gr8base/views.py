@@ -9,10 +9,49 @@ from django.shortcuts import render
 CONTENT_DIR = Path(settings.BASE_DIR) / "content"
 SLUG_PATTERN = re.compile(r"[-a-zA-Z0-9_]+")
 INDEX_SLUG = "index"
+FRONTMATTER_DELIMITER = "---"
+LISTED_TAG = "faq"
+UNORDERED = 10**6
 
 
-def page_title(path):
-    for line in path.read_text(encoding="utf-8").splitlines():
+def split_frontmatter(text):
+    lines = text.splitlines()
+    if not lines or lines[0].strip() != FRONTMATTER_DELIMITER:
+        return {}, text
+    try:
+        end = next(
+            i for i, line in enumerate(lines[1:], start=1)
+            if line.strip() == FRONTMATTER_DELIMITER
+        )
+    except StopIteration:
+        return {}, text
+
+    meta = {}
+    for line in lines[1:end]:
+        key, sep, value = line.partition(":")
+        if sep:
+            meta[key.strip().lower()] = value.strip()
+    return meta, "\n".join(lines[end + 1:])
+
+
+def page_tags(meta):
+    raw = meta.get("tags", "").strip("[]")
+    return {tag.strip().strip("'\"").lower() for tag in raw.split(",") if tag.strip()}
+
+
+def page_order(meta):
+    try:
+        return int(meta.get("order", ""))
+    except ValueError:
+        return UNORDERED
+
+
+def read_page(path):
+    return split_frontmatter(path.read_text(encoding="utf-8"))
+
+
+def page_title(path, body):
+    for line in body.splitlines():
         if line.startswith("# "):
             return line[2:].strip()
     return path.stem.replace("-", " ").capitalize()
@@ -30,13 +69,22 @@ def doc_index(request):
     intro = None
     index_path = CONTENT_DIR / f"{INDEX_SLUG}.md"
     if index_path.is_file():
-        intro, _ = render_markdown(index_path.read_text(encoding="utf-8"))
+        _, index_body = read_page(index_path)
+        intro, _ = render_markdown(index_body)
 
-    pages = [
-        {"slug": path.stem, "title": page_title(path)}
-        for path in sorted(CONTENT_DIR.glob("*.md"))
-        if path.stem != INDEX_SLUG and SLUG_PATTERN.fullmatch(path.stem)
-    ]
+    pages = []
+    for path in sorted(CONTENT_DIR.glob("*.md")):
+        if path.stem == INDEX_SLUG or not SLUG_PATTERN.fullmatch(path.stem):
+            continue
+        meta, body = read_page(path)
+        if LISTED_TAG in page_tags(meta):
+            pages.append({
+                "slug": path.stem,
+                "title": page_title(path, body),
+                "order": page_order(meta),
+            })
+
+    pages.sort(key=lambda page: (page["order"], page["title"].lower()))
     return render(request, "docs.html", {"intro": intro, "pages": pages})
 
 
@@ -45,9 +93,10 @@ def doc_page(request, slug):
     if not path.is_file():
         raise Http404("Page not found")
 
-    html, toc = render_markdown(path.read_text(encoding="utf-8"))
+    _, body = read_page(path)
+    html, toc = render_markdown(body)
     return render(
         request,
         "docs_page.html",
-        {"title": page_title(path), "content": html, "toc": toc},
+        {"title": page_title(path, body), "content": html, "toc": toc},
     )

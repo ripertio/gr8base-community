@@ -10,6 +10,8 @@
 # Python
 __pycache__/
 *.py[cod]
+
+# Not needed for development >> because Django as long as DEBUG is false Django serves CSS directly from static/
 staticfiles/
 
 

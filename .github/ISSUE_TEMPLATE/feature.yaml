@@ -7,8 +7,6 @@ body:
     id: problem
     attributes:
       label: What problem would this solve?
-      description: Explain the problem or need.
-      placeholder: It would be useful if...
     validations:
       required: true
 
@@ -16,17 +14,10 @@ body:
     id: solution
     attributes:
       label: Proposed solution
-      description: What would you like to happen?
-    validations:
-      required: true
 
   - type: textarea
-    id: alternatives
+    id: acceptance
     attributes:
-      label: Alternatives considered
-      description: Have you considered another solution?
-
-  - type: textarea
-    id: additional
-    attributes:
-      label: Additional information
+      label: Acceptance criteria
+      placeholder: |
+        - [ ] ...

@@ -4,11 +4,13 @@ import tempfile
 
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import Group
+from django.core.exceptions import ValidationError
 from django.core.files.uploadedfile import SimpleUploadedFile
-from django.test import TestCase, override_settings
+from django.test import SimpleTestCase, TestCase, override_settings
 from django.urls import reverse
 from PIL import Image
 
+from .forms import MAX_EDGE, MAX_UPLOAD_BYTES, process_image
 from .models import Area, Crag, Feature, Photo
 
 User = get_user_model()
@@ -595,3 +597,56 @@ class PhotoUploadTests(CragTestBase):
         photos = Photo.objects.filter(crag=self.draft).order_by("pk")
         self.assertEqual(photos.count(), 2)
         self.assertTrue(all(photo.image.name.endswith(".webp") for photo in photos))
+
+class ProcessImageTests(SimpleTestCase):
+    def _jpeg(self, size=(32, 24), exif=None):
+        buffer = io.BytesIO()
+        Image.new("RGB", size, "red").save(buffer, format="JPEG", exif=exif or b"")
+        return SimpleUploadedFile("photo.jpg", buffer.getvalue(), content_type="image/jpeg")
+
+    def test_exif_metadata_is_removed(self):
+        exif = Image.Exif()
+        exif[0x010F] = "Test Camera Make"  # Make tag
+        content = process_image(self._jpeg(exif=exif.tobytes()))
+
+        result = Image.open(io.BytesIO(content.read()))
+        self.assertEqual(len(result.getexif()), 0)
+        self.assertNotIn("exif", result.info)
+
+    def test_large_image_is_resized_and_keeps_aspect_ratio(self):
+        content = process_image(self._jpeg(size=(3000, 2000)))
+
+        result = Image.open(io.BytesIO(content.read()))
+        self.assertEqual(max(result.size), MAX_EDGE)
+        self.assertAlmostEqual(result.width / result.height, 1.5, places=2)
+
+    def test_small_image_is_not_upscaled(self):
+        content = process_image(self._jpeg(size=(32, 24)))
+
+        result = Image.open(io.BytesIO(content.read()))
+        self.assertEqual(result.size, (32, 24))
+
+    def test_output_is_webp(self):
+        content = process_image(self._jpeg(size=(800, 600)))
+
+        result = Image.open(io.BytesIO(content.read()))
+        self.assertEqual(result.format, "WEBP")
+
+    def test_oversized_file_is_rejected(self):
+        upload = SimpleUploadedFile(
+            "big.jpg", b"0" * (MAX_UPLOAD_BYTES + 1), content_type="image/jpeg"
+        )
+        with self.assertRaisesMessage(ValidationError, "too large"):
+            process_image(upload)
+
+    def test_non_image_content_is_rejected(self):
+        upload = SimpleUploadedFile("evil.jpg", b"not an image", content_type="image/jpeg")
+        with self.assertRaisesMessage(ValidationError, "could not be read"):
+            process_image(upload)
+
+    def test_disallowed_format_is_rejected(self):
+        buffer = io.BytesIO()
+        Image.new("RGB", (8, 8)).save(buffer, format="BMP")
+        upload = SimpleUploadedFile("photo.bmp", buffer.getvalue(), content_type="image/bmp")
+        with self.assertRaisesMessage(ValidationError, "Please upload"):
+            process_image(upload)

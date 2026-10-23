@@ -1,0 +1,116 @@
+# .github/workflows/sync-project-status.yml
+# Spiegelt das "Status"-Feld von GitHub Project ripertio/2 als Label (z.B. "status:in-progress")
+# auf die Issues/PRs – damit Super Productivity per Label filtern kann.
+
+name: Sync project status to labels
+
+on:
+  schedule:
+    - cron: '*/15 * * * *'   
+  workflow_dispatch:         
+permissions: {}          
+
+concurrency:
+  group: project-status-sync
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/github-script@v7
+        env:
+          PROJECT_OWNER: ripertio
+          PROJECT_NUMBER: '2'
+          STATUS_FIELD: Status          # Name des Single-Select-Felds im Projekt
+          LABEL_PREFIX: 'status:'
+          # Spalten, die ein offenes Issue automatisch schließen (Spaltenname -> Schließgrund)
+          CLOSE_MAP: '{"Done":"completed","Abgelehnt":"not_planned"}'
+        with:
+          github-token: ${{ secrets.PROJECT_SYNC_TOKEN }}
+          script: |
+            const owner  = process.env.PROJECT_OWNER;
+            const number = parseInt(process.env.PROJECT_NUMBER, 10);
+            const field  = process.env.STATUS_FIELD;
+            const prefix = process.env.LABEL_PREFIX;
+            const closeMap = JSON.parse(process.env.CLOSE_MAP || '{}');
+            const toLabel = s => prefix + s.toLowerCase().trim().replace(/\s+/g, '-');
+
+            // Bei Org-Projekten: "user(login:$owner)" -> "organization(login:$owner)"
+            const query = `
+              query($owner:String!, $number:Int!, $field:String!, $cursor:String) {
+                user(login:$owner) {
+                  projectV2(number:$number) {
+                    items(first:100, after:$cursor) {
+                      pageInfo { hasNextPage endCursor }
+                      nodes {
+                        fieldValueByName(name:$field) {
+                          ... on ProjectV2ItemFieldSingleSelectValue { name }
+                        }
+                        content {
+                          __typename
+                          ... on Issue {
+                            number
+                            state
+                            repository { name owner { login } }
+                            labels(first:50) { nodes { name } }
+                          }
+                          ... on PullRequest {
+                            number
+                            repository { name owner { login } }
+                            labels(first:50) { nodes { name } }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }`;
+
+            // Alle Items holen (paginiert)
+            const items = [];
+            let cursor = null;
+            do {
+              const res = await github.graphql(query, { owner, number, field, cursor });
+              const page = res.user.projectV2.items;
+              items.push(...page.nodes);
+              cursor = page.pageInfo.hasNextPage ? page.pageInfo.endCursor : null;
+            } while (cursor);
+
+            let added = 0, removed = 0, skipped = 0, closed = 0;
+
+            for (const item of items) {
+              const c = item.content;
+              // Draft-Items haben kein Repo -> überspringen
+              if (!c || !['Issue', 'PullRequest'].includes(c.__typename)) { skipped++; continue; }
+
+              const repo = { owner: c.repository.owner.login, repo: c.repository.name };
+              const desired = item.fieldValueByName?.name ? toLabel(item.fieldValueByName.name) : null;
+              const current = c.labels.nodes.map(l => l.name).filter(n => n.startsWith(prefix));
+
+              try {
+                // Veraltete Status-Labels entfernen
+                for (const name of current.filter(n => n !== desired)) {
+                  await github.rest.issues.removeLabel({ ...repo, issue_number: c.number, name });
+                  core.info(`- ${repo.owner}/${repo.repo}#${c.number}: ${name}`);
+                  removed++;
+                }
+                // Neues Status-Label setzen (Label wird bei Bedarf automatisch angelegt)
+                if (desired && !current.includes(desired)) {
+                  await github.rest.issues.addLabels({ ...repo, issue_number: c.number, labels: [desired] });
+                  core.info(`+ ${repo.owner}/${repo.repo}#${c.number}: ${desired}`);
+                  added++;
+                }
+                // In Done/Abgelehnt gezogene, noch offene Issues schließen
+                const reason = closeMap[item.fieldValueByName?.name];
+                if (reason && c.__typename === 'Issue' && c.state === 'OPEN') {
+                  await github.rest.issues.update({ ...repo, issue_number: c.number, state: 'closed', state_reason: reason });
+                  core.info(`x ${repo.owner}/${repo.repo}#${c.number}: closed (${reason})`);
+                  closed++;
+                }
+              } catch (e) {
+                core.warning(`${repo.owner}/${repo.repo}#${c.number}: ${e.message}`);
+              }
+            }
+
+            core.notice(`Items: ${items.length} | +${added} / -${removed} | geschlossen: ${closed} | übersprungen (Drafts): ${skipped}`);

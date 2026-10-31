@@ -61,3 +61,10 @@
   .site-nav .nav-toggle,.site-nav .nav-burger{display:none}
   .site-nav .nav-links{display:flex;width:auto;flex-direction:row;align-items:center;margin-bottom:0}
 }
+.inline-form{display:inline;margin:0}
+.link-button{display:inline;width:auto;margin:0;padding:0;border:0;background:none;color:var(--pico-primary);font-size:inherit;text-decoration:underline;cursor:pointer}
+.cookie-banner article{max-width:32rem}
+.cookie-banner h2{font-size:1.25rem;margin-bottom:.5rem}
+.cookie-banner p{font-size:.9rem}
+.cookie-banner-actions{display:grid;grid-template-columns:1fr 1fr;gap:.75rem}
+.cookie-banner-actions button{margin:0}

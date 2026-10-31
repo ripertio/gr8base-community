@@ -44,11 +44,20 @@ class TopContributorsTests(TestCase):
 
 
 class UniqueVisitorTests(TestCase):
+    def setUp(self):
+        self.client.cookies["cookie_consent"] = "yes"
+
+    def test_nothing_counted_without_consent(self):
+        self.client.cookies["cookie_consent"] = "no"
+        self.client.get("/")
+        self.assertFalse(DailyHits.objects.exists())
+
     def test_reload_counts_once_per_browser(self):
         self.client.get("/")
         self.client.get("/")
         self.assertEqual(DailyHits.objects.get().count, 1)
         self.client.cookies.clear()
+        self.client.cookies["cookie_consent"] = "yes"
         self.client.get("/")
         self.assertEqual(DailyHits.objects.get().count, 2)
 
@@ -68,3 +77,24 @@ class UniqueVisitorTests(TestCase):
         self.client.get("/")
         hits = DailyHits.objects.get()
         self.assertEqual((hits.count, hits.logged_in_count), (1, 1))
+
+
+class CookieBannerTests(TestCase):
+    def test_banner_shown_until_choice_made(self):
+        self.assertContains(self.client.get("/"), "cookie-banner")
+        self.client.post(reverse("cookie_consent"), {"choice": "decline"})
+        self.assertNotContains(self.client.get("/"), "cookie-banner")
+
+    def test_accept_sets_cookie_and_redirects_safely(self):
+        r = self.client.post(
+            reverse("cookie_consent"), {"choice": "accept", "next": "https://evil.example/"}
+        )
+        self.assertRedirects(r, "/", fetch_redirect_response=False)
+        self.assertEqual(r.cookies["cookie_consent"].value, "yes")
+
+    def test_decline_clears_counter_cookie_and_reset_asks_again(self):
+        self.client.cookies["seen_today"] = "2026-01-01"
+        r = self.client.post(reverse("cookie_consent"), {"choice": "decline"})
+        self.assertEqual(r.cookies["seen_today"].value, "")
+        r = self.client.post(reverse("cookie_consent"), {"choice": "reset"})
+        self.assertEqual(r.cookies["cookie_consent"].value, "")

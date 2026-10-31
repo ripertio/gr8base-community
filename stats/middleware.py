@@ -6,14 +6,16 @@ from django.utils import timezone
 from .models import DailyHits
 
 COOKIE = "seen_today"
-SKIPPED_PREFIXES = ("/static/", "/media/", "/admin/", "/healthz/", "/stats/")
+CONSENT_COOKIE = "cookie_consent"
+SKIPPED_PREFIXES = ("/static/", "/media/", "/admin/", "/healthz/", "/stats/", "/cookies/")
 
 
 class UniqueVisitorMiddleware:
     """Count each browser at most once per day.
 
     A cookie holding today's date that expires at midnight marks a browser as
-    counted, and whether it was seen logged in. Nothing identifying is stored on the server, only the counter.
+    counted, and whether it was seen logged in. Only runs with the visitor's
+    consent (the `cookie_consent` cookie). Nothing identifying is stored on the server, only the counter.
     """
 
     def __init__(self, get_response):
@@ -26,6 +28,7 @@ class UniqueVisitorMiddleware:
             or response.status_code != 200
             or request.path.startswith(SKIPPED_PREFIXES)
             or request.user.is_staff
+            or request.COOKIES.get(CONSENT_COOKIE) != "yes"
         ):
             return response
 

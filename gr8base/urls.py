@@ -4,7 +4,7 @@ from django.contrib import admin
 from django.shortcuts import render
 from django.urls import include, path
 from crags.views import crag_list
-from gr8base.views import doc_index, doc_page, healthz
+from gr8base.views import cookie_consent, doc_index, doc_page, healthz
 
 
 urlpatterns = [
@@ -14,6 +14,7 @@ urlpatterns = [
     path("stats/", include("stats.urls")),
     path("docs/", doc_index, name="docs"),
     path("docs/<slug:slug>/", doc_page, name="doc_page"),
+    path("cookies/", cookie_consent, name="cookie_consent"),
     path("healthz/", healthz, name="healthz"),
     path("admin/", admin.site.urls),
     path("accounts/", include("allauth.urls")),

@@ -20,7 +20,7 @@ We collect as little data as possible. There is no third-party tracking. Data is
 
 **Session data.** After you log in, a session cookie keeps you signed in. It is strictly necessary for the login function. We do not use marketing or tracking cookies.
 
-**Visitor counter.** To count how many different people visit per day, we set a cookie that contains only the current date (and a marker if you were logged in) and expires at midnight. It prevents reloads from being counted twice. We store only two daily totals (all visitors, and visitors who were logged in), no IP address, user agent or other visitor data.
+**Visitor counter.** Only if you accept in the cookie banner, and to count how many different people visit per day, we set a cookie that contains only the current date (and a marker if you were logged in) and expires at midnight. It prevents reloads from being counted twice. We store only two daily totals (all visitors, and visitors who were logged in), no IP address, user agent or other visitor data. If you decline, nothing is counted and the cookie is not set. Your choice is remembered in a cookie named `cookie_consent` for 180 days; you can change it at any time via "Cookie settings" in the footer.
 
 **Server logs.** Our hosting and network infrastructure temporarily records technical data such as IP address, time of request, requested page, and browser type. This is needed to operate and secure the site.
 

@@ -83,14 +83,19 @@ Settings (environment, then `.env`, then default):
 | `KEEP_DAYS` | `14` | Local retention |
 | `MEDIA_DIR` | `data/media` | Media to archive |
 | `BACKUP_REMOTE` | empty | Off-site target: `user@host:/path` (rsync) or `rclone:remote:bucket/path` |
+| `BACKUP_HEARTBEAT_URL` | empty | Ping URL (e.g. healthchecks.io), requested only after a fully successful run |
 
 Without `BACKUP_REMOTE` the script prints a warning: a backup on the same machine does not survive losing the server.
+
+With `BACKUP_HEARTBEAT_URL` set, a monitoring service can alert you when a backup fails or does not run at all (cron or server down). Create a check with a 1-day period and a grace of a couple of hours. `deploy_production.sh` runs `backup.sh` too, so deploys also send a ping.
 
 Cron example (daily at 03:15):
 
 ```
-15 3 * * * /path/to/gr8base-community/scripts/backup.sh >> /var/log/gr8base-backup-cron.log 2>&1
+15 3 * * * /path/to/gr8base-community/scripts/backup.sh > /dev/null
 ```
+
+Progress output is discarded; errors and warnings (stderr) still reach cron's own mail/syslog. The only log kept is `gr8base-backup.log` (see above).
 
 ### `restore.sh`
 

@@ -10,9 +10,12 @@
 #             BACKUP_REMOTE="user@host:/backups/gr8base"      (rsync over ssh)
 #             BACKUP_REMOTE="rclone:b2remote:bucket/gr8base"   (rclone)
 #           A backup on the same disk does not survive losing the server.
+# Alerts   set BACKUP_HEARTBEAT_URL (e.g. a healthchecks.io ping URL). It is
+#          requested only after a fully successful run, so a failed or missing
+#          backup makes the monitoring service alert you.
 #
 # Cron example (daily 03:15):
-#   15 3 * * * /path/to/gr8base-community/scripts/backup.sh >> /var/log/gr8base-backup.log 2>&1
+#   15 3 * * * /path/to/gr8base-community/scripts/backup.sh > /dev/null
 #
 # Log      appends "<time> backup commit=<HEAD> backup=<dir>" to $BACKUP_DIR/deploy.log
 #          and ./gr8base-backup.log (same files deploy_production.sh writes to).
@@ -43,6 +46,7 @@ DB_USER="$(setting POSTGRES_USER familienfelsen)"
 BACKUP_DIR="$(setting BACKUP_DIR "$HOME/gr8base-backups")"
 KEEP_DAYS="$(setting KEEP_DAYS 14)"
 BACKUP_REMOTE="$(setting BACKUP_REMOTE "")"
+BACKUP_HEARTBEAT_URL="$(setting BACKUP_HEARTBEAT_URL "")"
 MEDIA_DIR="$(setting MEDIA_DIR data/media)"
 # Dev: put MEDIA_DIR=./data-dev/media and COMPOSE_FILE=docker-compose.dev.yml in .env
 
@@ -105,6 +109,12 @@ if [[ -n "$BACKUP_REMOTE" ]]; then
     fi
 else
     echo "WARNING: BACKUP_REMOTE not set - backup exists only on this machine" >&2
+fi
+
+if [[ -n "$BACKUP_HEARTBEAT_URL" ]]; then
+    echo "==> Pinging heartbeat"
+    curl -fsS -m 10 --retry 3 -o /dev/null "$BACKUP_HEARTBEAT_URL" \
+        || echo "WARNING: heartbeat ping failed" >&2
 fi
 
 echo "Done: $DEST ($(du -sh "$DEST" | cut -f1))"

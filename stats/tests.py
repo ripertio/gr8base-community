@@ -6,6 +6,7 @@ from django.urls import reverse
 
 from crags.models import Area, Crag
 
+from .models import DailyHits
 from .views import cumulative, top_contributors
 
 
@@ -40,3 +41,21 @@ class TopContributorsTests(TestCase):
         bars = top_contributors()["bars"]
         self.assertEqual([x["name"] for x in bars], ["alice", "Anonymous"])
         self.assertEqual([x["score"] for x in bars], [2, 1])
+
+
+class UniqueVisitorTests(TestCase):
+    def test_reload_counts_once_per_browser(self):
+        self.client.get("/")
+        self.client.get("/")
+        self.assertEqual(DailyHits.objects.get().count, 1)
+        self.client.cookies.clear()
+        self.client.get("/")
+        self.assertEqual(DailyHits.objects.get().count, 2)
+
+    def test_staff_and_skipped_paths_not_counted(self):
+        self.client.get("/healthz/")
+        self.assertFalse(DailyHits.objects.exists())
+        get_user_model().objects.create_user("s", "s@example.com", "pw", is_staff=True)
+        self.client.login(username="s", password="pw")
+        self.client.get("/")
+        self.assertFalse(DailyHits.objects.exists())

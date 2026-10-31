@@ -6,6 +6,11 @@
     <h1>Statistics</h1>
 
     <article>
+        <header>Daily visitors (unique browsers): <strong>{{ visitors_today }}</strong> today</header>
+        {% include "stats/_chart.html" with c=visitors label="Daily visitors" %}
+    </article>
+
+    <article>
         <header>Users: <strong>{{ users.latest }}</strong></header>
         {% include "stats/_chart.html" with c=users label="Users over time" %}
     </article>

@@ -8,6 +8,8 @@ from django.utils import timezone
 
 from crags.models import Crag
 
+from .models import DailyHits
+
 WIDTH, HEIGHT = 600, 220
 LEFT, RIGHT, TOP, BOTTOM = 48, 12, 10, 44
 
@@ -110,14 +112,22 @@ def top_contributors(limit=3):
 
 @user_passes_test(lambda u: u.is_active and u.is_staff, login_url="account_login")
 def stats(request):
-    today = timezone.now().date()
+    today = timezone.localdate()
     User = get_user_model()
 
     user_dates = [d.date() for d in User.objects.values_list("date_joined", flat=True)]
     crag_dates = [d.date() for d in Crag.objects.values_list("created_at", flat=True)]
     first = min(user_dates + crag_dates + [today - timedelta(days=29)])
 
+    hits = dict(DailyHits.objects.values_list("date", "count"))
+    visitors = [
+        (first + timedelta(days=i), hits.get(first + timedelta(days=i), 0))
+        for i in range((today - first).days + 1)
+    ]
+
     return render(request, "stats/stats.html", {
+        "visitors": chart(visitors, "Visitors", bars=True),
+        "visitors_today": hits.get(today, 0),
         "users": chart(cumulative(user_dates, first, today), "Users"),
         "crags": chart(cumulative(crag_dates, first, today), "Crags"),
         "contributors": top_contributors(),

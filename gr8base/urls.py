@@ -9,6 +9,7 @@ from gr8base.views import doc_index, doc_page, healthz
 
 urlpatterns = [
     path("", crag_list, name="home"),
+    path("", include("accounts.urls")),
     path("crags/", include("crags.urls")),
     path("stats/", include("stats.urls")),
     path("docs/", doc_index, name="docs"),

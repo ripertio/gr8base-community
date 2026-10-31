@@ -14,6 +14,8 @@ We collect as little data as possible. There is no third-party tracking. Data is
 
 **Account data.** When you sign up: username, email address, and a password. Passwords are stored only as salted hashes (Argon2), never in plain text. Whether you verify your email is optional and controlled by the site configuration.
 
+**Profile data.** Optionally a short bio and an avatar image. Avatars are re-encoded and resized on upload, which removes embedded metadata. Your profile is private by default; only you can see it. If you choose to make it public, anyone can see your username, bio, avatar, join month and your public crags. You can switch it back to private or remove the data at any time in your profile settings.
+
 **Content you submit.** Crag entries (name, location coordinates, description, parking and family notes, guidebook references), uploaded photos with captions, and the username that created them. Uploaded photos are re-encoded on upload, which removes embedded metadata such as location or device information (EXIF). Photos and captions may show or name people. Please do not upload identifiable people without their consent.
 
 **Session data.** After you log in, a session cookie keeps you signed in. It is strictly necessary for the login function. We do not use marketing or tracking cookies.

@@ -22,5 +22,9 @@
     {% else %}
         <polygon points="{{ c.area }}" fill="var(--pico-primary)" fill-opacity="0.15" />
         <polyline points="{{ c.line }}" fill="none" stroke="var(--pico-primary)" stroke-width="2" />
+        {% if c.line2 %}
+            <polyline points="{{ c.line2 }}" fill="none" stroke="#d97706" stroke-width="2"
+                      stroke-dasharray="5 3" />
+        {% endif %}
     {% endif %}
 </svg>

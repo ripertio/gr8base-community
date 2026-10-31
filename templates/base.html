@@ -55,13 +55,13 @@
 
             <ul class="nav-links">
                 <li><a href="{% url 'crags:list' %}">Crags</a></li>
+                <li><a href="{% url 'stats:index' %}">Stats</a></li>
                 <li><a href="{% url 'docs' %}">Help</a></li>
 
                 {% if user.is_authenticated %}
                     <li><a href="{% url 'crags:mine' %}">My crags</a></li>
                     <li><a href="{% url 'crags:create' %}">Add a crag</a></li>
                     {% if user.is_staff %}
-                        <li><a href="{% url 'stats:index' %}">Stats</a></li>
                         <li><a href="{% url 'admin:index' %}">Admin</a></li>
                     {% endif %}
                     <li><a href="{% url 'profiles:detail' user.username %}">{{ user.username }}</a></li>
@@ -97,7 +97,7 @@
         {% block content %}
         {% endblock %}
 
-    </main>i
+    </main>
 
 
     <!-- Footer -->
@@ -122,11 +122,38 @@
                 <a href="{% url 'doc_page' 'privacy' %}">Privacy</a>
                 &middot;
                 <a href="{% url 'doc_page' 'terms' %}">Terms</a>
+                &middot;
+                <form method="post" action="{% url 'cookie_consent' %}" class="inline-form">
+                    {% csrf_token %}
+                    <input type="hidden" name="next" value="{{ request.path }}">
+                    <button type="submit" name="choice" value="reset" class="link-button">Cookie settings</button>
+                </form>
             </small>
 
         </div>
 
     </footer>
+
+    {% if request.COOKIES.cookie_consent != "yes" and request.COOKIES.cookie_consent != "no" %}
+        <dialog open class="cookie-banner" aria-labelledby="cookie-banner-title">
+            <article>
+                <form method="post" action="{% url 'cookie_consent' %}">
+                    {% csrf_token %}
+                    <input type="hidden" name="next" value="{{ request.get_full_path }}">
+                    <h2 id="cookie-banner-title">Cookies</h2>
+                    <p>
+                        We use a login cookie that is strictly necessary.
+                        With your consent we also set a small cookie to count daily visitors. No tracking,
+                        no third parties. Details in the <a href="{% url 'doc_page' 'privacy' %}">privacy policy</a>.
+                    </p>
+                    <div class="cookie-banner-actions">
+                        <button type="submit" name="choice" value="decline" class="secondary">Decline</button>
+                        <button type="submit" name="choice" value="accept">Accept</button>
+                    </div>
+                </form>
+            </article>
+        </dialog>
+    {% endif %}
 
     <script src="{% static 'js/photo-gallery.js' %}" defer></script>
     <script src="{% static 'js/location-picker.js' %}" defer></script>

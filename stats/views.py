@@ -1,11 +1,13 @@
 from datetime import timedelta
 
 from django.contrib.auth import get_user_model
-from django.contrib.auth.decorators import user_passes_test
+from django.db.models import Count
 from django.shortcuts import render
 from django.utils import timezone
 
 from crags.models import Crag
+
+from .models import DailyHits
 
 WIDTH, HEIGHT = 600, 220
 LEFT, RIGHT, TOP, BOTTOM = 48, 12, 10, 44
@@ -28,9 +30,9 @@ def cumulative(dates, start, end):
     return series
 
 
-def chart(series, y_label, bars=False):
+def chart(series, y_label, bars=False, extra=None):
     """Turn [(date, value)] into SVG coordinates for the template."""
-    top = max((v for _, v in series), default=0) or 1
+    top = max((v for _, v in series + (extra or [])), default=0) or 1
     n = len(series)
     plot_w = WIDTH - LEFT - RIGHT
     plot_h = HEIGHT - TOP - BOTTOM
@@ -40,6 +42,10 @@ def chart(series, y_label, bars=False):
         (LEFT + i * step, base - (v / top) * plot_h) for i, (_, v) in enumerate(series)
     ]
     line = " ".join(f"{x:.1f},{y:.1f}" for x, y in points)
+    line2 = " ".join(
+        f"{LEFT + i * step:.1f},{base - (v / top) * plot_h:.1f}"
+        for i, (_, v) in enumerate(extra or [])
+    )
     mid = n // 2
     return {
         "width": WIDTH,
@@ -62,6 +68,7 @@ def chart(series, y_label, bars=False):
             for i, anchor in ((0, "start"), (mid, "middle"), (n - 1, "end"))
         ] if series else [],
         "line": line,
+        "line2": line2,
         "area": f"{LEFT},{base} {line} {points[-1][0]:.1f},{base}" if points else "",
         "bars": [
             {"x": f"{x - step * 0.4:.1f}", "y": f"{y:.1f}",
@@ -71,16 +78,67 @@ def chart(series, y_label, bars=False):
     }
 
 
-@user_passes_test(lambda u: u.is_active and u.is_staff, login_url="account_login")
+MEDALS = ("#d4af37", "#a8a9ad", "#cd7f32")  # gold, silver, bronze
+BAR_LEFT, BAR_H, BAR_GAP = 120, 28, 14
+
+
+def top_contributors(limit=3):
+    """Users who created the most crags.
+
+    Only users who made their profile public are named; everyone else is
+    shown as "Anonymous".
+    """
+    User = get_user_model()
+    users = User.objects.annotate(n_crags=Count("crags")).order_by("id")
+    scored = sorted(((u, u.n_crags) for u in users), key=lambda t: -t[1])
+    scored = [t for t in scored if t[1] > 0][:limit]
+    top = scored[0][1] if scored else 1
+    plot_w = WIDTH - BAR_LEFT - 48
+    bars = []
+    for i, (u, score) in enumerate(scored):
+        y = TOP + i * (BAR_H + BAR_GAP)
+        bars.append({
+            "name": u.username if u.profile_public else "Anonymous",
+            "score": score,
+            "y": y,
+            "mid": y + BAR_H / 2,
+            "w": max(score / top * plot_w, 2),
+            "medal": MEDALS[i],
+            "rank": i + 1,
+        })
+    return {
+        "width": WIDTH,
+        "height": TOP * 2 + max(len(bars), 1) * (BAR_H + BAR_GAP),
+        "left": BAR_LEFT,
+        "bars": bars,
+    }
+
+
 def stats(request):
-    today = timezone.now().date()
+    today = timezone.localdate()
     User = get_user_model()
 
     user_dates = [d.date() for d in User.objects.values_list("date_joined", flat=True)]
     crag_dates = [d.date() for d in Crag.objects.values_list("created_at", flat=True)]
     first = min(user_dates + crag_dates + [today - timedelta(days=29)])
 
-    return render(request, "stats/stats.html", {
+    context = {
         "users": chart(cumulative(user_dates, first, today), "Users"),
         "crags": chart(cumulative(crag_dates, first, today), "Crags"),
-    })
+    }
+
+    # visitors and contributors are for admins only
+    if request.user.is_active and request.user.is_staff:
+        rows = {d: (n, m) for d, n, m in DailyHits.objects.values_list(
+            "date", "count", "logged_in_count")}
+        days = [first + timedelta(days=i) for i in range((today - first).days + 1)]
+        visitors = [(d, rows.get(d, (0, 0))[0]) for d in days]
+        members = [(d, rows.get(d, (0, 0))[1]) for d in days]
+        context.update({
+            "is_admin": True,
+            "visitors": chart(visitors, "Visitors", extra=members),
+            "visitors_today": rows.get(today, (0, 0))[0],
+            "contributors": top_contributors(),
+        })
+
+    return render(request, "stats/stats.html", context)

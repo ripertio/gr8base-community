@@ -5,7 +5,9 @@ import markdown
 from django.conf import settings
 from django.db import connection
 from django.http import Http404, HttpResponse
-from django.shortcuts import render
+from django.shortcuts import redirect, render
+from django.utils.http import url_has_allowed_host_and_scheme
+from django.views.decorators.http import require_POST
 
 CONTENT_DIR = Path(settings.BASE_DIR) / "content"
 SLUG_PATTERN = re.compile(r"[-a-zA-Z0-9_]+")
@@ -111,3 +113,35 @@ def healthz(request):
     except Exception:
         return HttpResponse("db unavailable", status=503, content_type="text/plain")
     return HttpResponse("ok", content_type="text/plain")
+
+
+CONSENT_COOKIE = "cookie_consent"
+CONSENT_MAX_AGE = 180 * 24 * 3600
+VISITOR_COOKIE = "seen_today"
+
+
+@require_POST
+def cookie_consent(request):
+    """Store the visitor-counter choice: accept, decline or reset (ask again)."""
+    choice = request.POST.get("choice")
+    target = request.POST.get("next", "")
+    if not url_has_allowed_host_and_scheme(
+        target, allowed_hosts={request.get_host()}, require_https=request.is_secure()
+    ):
+        target = "/"
+    response = redirect(target)
+    if choice == "accept":
+        response.set_cookie(
+            CONSENT_COOKIE, "yes", max_age=CONSENT_MAX_AGE,
+            secure=request.is_secure(), httponly=True, samesite="Lax",
+        )
+    else:
+        response.delete_cookie(VISITOR_COOKIE)
+        if choice == "decline":
+            response.set_cookie(
+                CONSENT_COOKIE, "no", max_age=CONSENT_MAX_AGE,
+                secure=request.is_secure(), httponly=True, samesite="Lax",
+            )
+        else:
+            response.delete_cookie(CONSENT_COOKIE)
+    return response

@@ -5,13 +5,46 @@
 {% block content %}
     <h1>Statistics</h1>
 
-    <article>
-        <header>Users: <strong>{{ users.latest }}</strong></header>
-        {% include "stats/_chart.html" with c=users label="Users over time" %}
-    </article>
 
     <article>
         <header>Crags: <strong>{{ crags.latest }}</strong></header>
         {% include "stats/_chart.html" with c=crags label="Crags over time" %}
     </article>
+    <article>
+        <header>Users: <strong>{{ users.latest }}</strong></header>
+        {% include "stats/_chart.html" with c=users label="Users over time" %}
+    </article>
+
+    {% if is_admin %}
+    <article>
+        <header>Crag Kings &amp; Queens: the Top 3 Crag Creators</header>
+        {% if contributors.bars %}
+            <svg viewBox="0 0 {{ contributors.width }} {{ contributors.height }}" role="img"
+                 aria-label="Top crag creators" style="width: 100%; height: auto; font-size: 12px">
+                {% for b in contributors.bars %}
+                    <circle cx="14" cy="{{ b.mid }}" r="11" fill="{{ b.medal }}" />
+                    <text x="14" y="{{ b.mid }}" text-anchor="middle" dominant-baseline="central"
+                          font-weight="bold" fill="#fff">{{ b.rank }}</text>
+                    <text x="34" y="{{ b.mid }}" dominant-baseline="central"
+                          fill="currentColor">{{ b.name }}</text>
+                    <rect x="{{ contributors.left }}" y="{{ b.y }}" width="{{ b.w|floatformat:1 }}"
+                          height="28" fill="{{ b.medal }}" />
+                    <text x="{{ contributors.left|add:b.w|add:6 }}" y="{{ b.mid }}"
+                          dominant-baseline="central" fill="currentColor">{{ b.score }}</text>
+                {% endfor %}
+            </svg>
+            <small>Number of crags created. Only users with a public profile are named.</small>
+        {% else %}
+            <p>No contributions yet.</p>
+        {% endif %}
+    </article>
+    <article>
+        <header>Daily visitors (unique browsers): <strong>{{ visitors_today }}</strong> today</header>
+        {% include "stats/_chart.html" with c=visitors label="Daily visitors" %}
+        <small>
+            <span style="color: var(--pico-primary)">&#9644;</span> All visitors
+            &nbsp; <span style="color: #d97706">&#9548;&#9548;</span> Logged-in users
+        </small>
+    </article>
+    {% endif %}
 {% endblock %}

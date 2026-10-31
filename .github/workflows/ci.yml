@@ -1,0 +1,31 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      COMPOSE_FILE: docker-compose.dev.yml
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build
+        run: docker compose build web
+
+      - name: Django system check
+        run: docker compose run --rm web python manage.py check
+
+      - name: Migrations are up to date
+        run: docker compose run --rm web python manage.py makemigrations --check --dry-run
+
+      - name: Tests
+        run: docker compose run --rm web python manage.py test
+
+      - name: Clean up
+        if: always()
+        run: docker compose down -v

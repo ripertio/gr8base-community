@@ -71,13 +71,20 @@ class UniqueVisitorTests(TestCase):
         self.client.get("/")
         self.assertEqual(DailyHits.objects.get().count, 2)
 
-    def test_staff_and_skipped_paths_not_counted(self):
+    def test_admins_and_skipped_paths_not_counted(self):
         self.client.get("/healthz/")
         self.assertFalse(DailyHits.objects.exists())
-        get_user_model().objects.create_user("s", "s@example.com", "pw", is_staff=True)
-        self.client.login(username="s", password="pw")
+        get_user_model().objects.create_superuser("a", "a@example.com", "pw")
+        self.client.login(username="a", password="pw")
         self.client.get("/")
         self.assertFalse(DailyHits.objects.exists())
+
+    def test_moderators_are_counted(self):
+        get_user_model().objects.create_user("m", "m@example.com", "pw", is_staff=True)
+        self.client.login(username="m", password="pw")
+        self.client.get("/")
+        hits = DailyHits.objects.get()
+        self.assertEqual((hits.count, hits.logged_in_count), (1, 1))
 
     def test_login_after_anonymous_visit_counts_as_member_once(self):
         get_user_model().objects.create_user("u", "u@example.com", "pw")

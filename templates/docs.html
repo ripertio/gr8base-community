@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+
+
+{% block title %}
+Documentation – gr8base community
+{% endblock %}
+
+
+{% block content %}
+
+
+
+
+{% if intro %}
+<section>
+    {{ intro|safe }}
+</section>
+{% endif %}
+
+
+{% if pages %}
+<section>
+
+    <h2>
+        Usefule Information
+    </h2>
+
+    <ul>
+        {% for page in pages %}
+        <li><a href="{% url 'doc_page' page.slug %}">{{ page.title }}</a></li>
+        {% endfor %}
+    </ul>
+
+</section>
+{% endif %}
+
+
+
+{% endblock %}

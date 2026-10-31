@@ -1,0 +1,12 @@
+exported_at: 2026-10-24T20:17:16Z
+git_commit: 47b9173
+crags: 6
+photos: 16 (missing: 0)
+last_migrations:
+  account 0009_emailaddress_unique_primary_email
+  accounts 0001_initial
+  admin 0003_logentry_add_action_flag_choices
+  auth 0012_alter_user_first_name_max_length
+  contenttypes 0002_remove_content_type_name
+  crags 0010_create_crag_managers_group
+  sessions 0001_initial

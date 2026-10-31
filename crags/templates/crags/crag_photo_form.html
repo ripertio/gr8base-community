@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+
+{% block title %}Add photos – gr8base community{% endblock %}
+
+{% block content %}
+    <h1>Photos for “{{ crag.name }}”</h1>
+
+    <form method="post" enctype="multipart/form-data">
+        {% csrf_token %}
+        {{ form.as_p }}
+        <p>
+            <label for="id_images">Images (select multiple, up to {{ max_files }})</label>
+            <input type="file" name="images" id="id_images" multiple required
+                   accept="image/jpeg,image/png,image/webp,image/heic,image/heif">
+        </p>
+        <button type="submit">Upload</button>
+    </form>
+
+    <p><a href="{% url 'crags:detail' crag.pk %}">Cancel</a></p>
+{% endblock %}

@@ -1,0 +1,26 @@
+<svg viewBox="0 0 {{ c.width }} {{ c.height }}" role="img" aria-label="{{ label }}"
+     style="width: 100%; height: auto; font-size: 11px">
+    {% for t in c.y_ticks %}
+        <line x1="{{ c.left }}" x2="{{ c.right }}" y1="{{ t.y }}" y2="{{ t.y }}"
+              stroke="currentColor" stroke-opacity="0.15" />
+        <text x="{{ c.left|add:-6 }}" y="{{ t.y }}" text-anchor="end" dominant-baseline="middle"
+              fill="currentColor">{{ t.value }}</text>
+    {% endfor %}
+    {% for t in c.x_ticks %}
+        <text x="{{ t.x }}" y="{{ c.tick_y }}" text-anchor="{{ t.anchor }}"
+              fill="currentColor">{{ t.day|date:"Y-m-d" }}</text>
+    {% endfor %}
+    <text x="12" y="{{ c.y_label_y }}" text-anchor="middle" fill="currentColor"
+          transform="rotate(-90 12 {{ c.y_label_y }})">{{ c.y_label }}</text>
+    <text x="{{ c.x_label_x }}" y="{{ c.x_label_y }}" text-anchor="middle"
+          fill="currentColor">Date</text>
+    {% if c.bars %}
+        {% for b in c.bars %}
+            <rect x="{{ b.x }}" y="{{ b.y }}" width="{{ b.w }}" height="{{ b.h }}"
+                  fill="var(--pico-primary)" />
+        {% endfor %}
+    {% else %}
+        <polygon points="{{ c.area }}" fill="var(--pico-primary)" fill-opacity="0.15" />
+        <polyline points="{{ c.line }}" fill="none" stroke="var(--pico-primary)" stroke-width="2" />
+    {% endif %}
+</svg>

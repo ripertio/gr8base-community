@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+
+{% block title %}Statistics – gr8base community{% endblock %}
+
+{% block content %}
+    <h1>Statistics</h1>
+
+    <article>
+        <header>Users: <strong>{{ users.latest }}</strong></header>
+        {% include "stats/_chart.html" with c=users label="Users over time" %}
+    </article>
+
+    <article>
+        <header>Crags: <strong>{{ crags.latest }}</strong></header>
+        {% include "stats/_chart.html" with c=crags label="Crags over time" %}
+    </article>
+{% endblock %}

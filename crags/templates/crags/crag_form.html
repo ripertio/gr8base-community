@@ -1,0 +1,87 @@
+{% extends "base.html" %}
+
+{% block title %}{{ title }} – gr8base community{% endblock %}
+
+{% block content %}
+    <h1>{{ title }}</h1>
+
+    {% if note %}
+        <article><small>{{ note }}</small></article>
+    {% endif %}
+
+    <form method="post" enctype="multipart/form-data">
+        {% csrf_token %}
+        {{ form.non_field_errors }}
+        {% for field in form %}
+            {% if field.name == "approach_assessed" or field.name == "base_assessed" %}
+                <fieldset>
+                    <legend>Known hazards / features</legend>
+            {% endif %}
+            {{ field.as_field_group }}
+            {% if field.name == "location" %}
+                <button type="button" class="outline" data-use-current-location>
+                    Use my current location
+                </button>
+                <small data-location-status role="status" aria-live="polite"></small>
+            {% endif %}
+            {% if field.name == "approach_features" or field.name == "base_features" %}
+                </fieldset>
+            {% endif %}
+        {% endfor %}
+
+        {% if allow_photo_upload %}
+            <fieldset>
+                <legend>Add photos (optional)</legend>
+                {% if crag and crag.photos.all %}
+                    <h3>Existing photos</h3>
+                    <div class="photo-grid">
+                        {% for photo in crag.photos.all %}
+                            <figure>
+                                <img src="{{ photo.image.url }}"
+                                     alt="{% if photo.caption %}{{ photo.caption }}{% else %}{{ photo.get_category_display }}{% endif %}"
+                                     loading="lazy">
+                                <figcaption>
+                                    <small>
+                                        {{ photo.get_category_display }}{% if photo.caption %} – {{ photo.caption }}{% endif %}
+                                    </small>
+                                    <button type="submit" form="delete-photo-{{ photo.pk }}"
+                                            class="outline secondary">Delete</button>
+                                </figcaption>
+                            </figure>
+                        {% endfor %}
+                    </div>
+                {% endif %}
+                {{ photo_form.as_p }}
+                <label for="id_images">Images (select multiple, up to {{ max_files }})</label>
+                <input type="file" name="images" id="id_images" multiple
+                       accept="image/jpeg,image/png,image/webp,image/heic,image/heif">
+            </fieldset>
+        {% endif %}
+
+        <div class="grid">
+            <button type="submit" name="action" value="draft" class="secondary">
+                Save as draft
+            </button>
+            <button type="submit" name="action" value="submit">
+                Submit for review
+            </button>
+        </div>
+    </form>
+
+    {% if crag %}
+        {% for photo in crag.photos.all %}
+            <form id="delete-photo-{{ photo.pk }}" method="post"
+                  action="{% url 'crags:photo_delete' photo.pk %}"
+                  onsubmit="return confirm('Delete this photo?')">
+                {% csrf_token %}
+                <input type="hidden" name="next" value="edit">
+            </form>
+        {% endfor %}
+        <form method="post"
+              action="{% url 'crags:delete' crag.pk %}"
+              onsubmit="return confirm('Really delete this crag and all its photos? This cannot be undone.')">
+            {% csrf_token %}
+            <button type="submit" class="outline secondary">Delete crag</button>
+        </form>
+    {% endif %}
+{% endblock %}

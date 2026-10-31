@@ -1,0 +1,104 @@
+{% extends "base.html" %}
+
+
+{% block title %}
+gr8base community
+{% endblock %}
+
+
+{% block content %}
+
+
+<!-- Hero -->
+
+<section class="hero">
+
+    <hgroup>
+
+        <h1>
+            gr8base community
+        </h1>
+    </hgroup>
+
+    <p> 
+        Can you bring a stroller?
+        What is the ground like at the base?
+        gr8base community collects the information
+        families need for a day of climbing with children.
+    </p>
+
+</section>
+
+
+
+<!-- Main actions -->
+
+<section class="home-actions">
+
+
+    <!-- Search -->
+
+    <article>
+
+        <header>
+            <h2>
+                🔎 Find crags
+            </h2>
+        </header>
+
+        <p>
+            Search the crag database and filter by area,
+            family rating, approach, and other criteria.
+        </p>
+
+        <footer>
+
+            <a
+                href="{% url 'crags:list' %}"
+                role="button"
+            >
+                Browse crags
+            </a>
+
+        </footer>
+
+    </article>
+
+
+
+    <!-- Documentation -->
+
+    <article>
+
+        <header>
+            <h2>
+                📖 Documentation
+            </h2>
+        </header>
+
+        <p>
+            What do the family ratings mean?
+            What information is collected?
+            How should photos be used?
+        </p>
+
+        <footer>
+
+            <a
+                href="{% url 'docs' %}"
+                role="button"
+                class="secondary outline"
+            >
+                Learn more
+            </a>
+
+        </footer>
+
+    </article>
+
+
+</section>
+
+
+
+{% endblock %}

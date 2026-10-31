@@ -1,0 +1,233 @@
+{% extends "base.html" %}
+{% load l10n %}
+
+
+{% block title %}
+{{ crag.name }} – gr8base community
+{% endblock %}
+
+
+{% block content %}
+
+{% if crag.status == "PENDING" %}
+    <p><mark>Pending review</mark></p>
+{% elif crag.status != "PUBLISHED" %}
+    <p><mark>Status: {{ crag.get_status_display }}</mark></p>
+{% endif %}
+
+{% if can_edit %}
+    <p><a href="{% url 'crags:edit' crag.pk %}" role="button" class="outline">Edit</a></p>
+{% endif %}
+
+<a href="{% url 'crags:list' %}">
+    ← All crags
+</a>
+
+
+<header class="crag-header">
+
+    <h1>
+        {{ crag.name }}
+    </h1>
+
+    <p class="area">
+        {{ crag.area.name }}
+    </p>
+
+</header>
+
+<section>
+
+    <h2>
+        For families
+    </h2>
+
+
+    <div class="grid">
+
+        <article>
+            <h4>Family rating</h4>
+            <ul>
+                <li>Babies (0–1): {% if crag.rating_babies %}★ {{ crag.rating_babies }}/5{% else %}–{% endif %}</li>
+                <li>Ages 2–4: {% if crag.rating_ages_2_4 %}★ {{ crag.rating_ages_2_4 }}/5{% else %}–{% endif %}</li>
+                <li>Ages 5+: {% if crag.rating_ages_5_plus %}★ {{ crag.rating_ages_5_plus }}/5{% else %}–{% endif %}</li>
+            </ul>
+
+        </article>
+       
+        <article>
+            <h4>Approach</h4>
+            <h3>
+                {% if crag.approach_minutes %}
+                    {{ crag.approach_minutes }} min
+                {% else %}
+                    –
+                {% endif %}
+            </h3>
+            {% if not crag.approach_assessed %}
+                <p class="assessment-neutral">No further information</p>
+            {% else %}
+                    {% if approach_features %}
+                        <ul>
+                            {% for feature in approach_features %}
+                                <li class="{% if feature.slug == 'stroller_friendly' %}assessment-positive{% elif feature.slug == 'rockfall' or feature.slug == 'fall_hazard' %}assessment-warning{% else %}assessment-neutral{% endif %}">
+                                    {{ feature.label }}
+                                </li>
+                            {% endfor %}
+                        </ul>
+                    {% else %}
+                        <p class="assessment-neutral">No hazards reported</p>
+                    {% endif %}
+                    {% if not approach_stroller_friendly %}
+                        <p class="assessment-warning">Not stroller-friendly</p>
+                    {% endif %}
+            {% endif %}
+        </article>
+        <article>
+            <h4>Base</h4>
+            {% if not crag.base_assessed %}
+                <p class="assessment-neutral">No information</p>
+            {% else %}
+                    {% if base_features %}
+                        <ul>
+                            {% for feature in base_features %}
+                                <li class="{% if feature.slug == 'stroller_friendly' %}assessment-positive{% elif feature.slug == 'rockfall' or feature.slug == 'fall_hazard' %}assessment-warning{% else %}assessment-neutral{% endif %}">
+                                    {{ feature.label }}
+                                </li>
+                            {% endfor %}
+                        </ul>
+                    {% else %}
+                        <p class="assessment-neutral">No hazards reported</p>
+                    {% endif %}
+                    {% if not base_stroller_friendly %}
+                        <p class="assessment-warning">Not stroller-friendly</p>
+                    {% endif %}
+            {% endif %}
+        </article>
+         <article>
+
+            <h4>Aspect</h4>
+
+            <h3>
+                {% if crag.orientation %}
+                    {{ crag.get_orientation_display }}
+                {% else %}
+                    –
+                {% endif %}
+            </h3>
+
+        </article>
+    </div>
+</section>
+
+<section>
+    {% if crag.photos.all %}
+        <h2>Photos</h2>
+        <div class="photo-grid">
+            {% for photo in crag.photos.all %}
+                <figure>
+                    <a href="{{ photo.image.url }}"
+                       class="gallery-trigger"
+                       data-gallery-image
+                       data-alt="{% if photo.caption %}{{ photo.caption }}{% else %}{{ photo.get_category_display }}{% endif %}"
+                       data-caption="{{ photo.get_category_display }}{% if photo.caption %} – {{ photo.caption }}{% endif %}">
+                        <img
+                            src="{{ photo.image.url }}"
+                            alt="{% if photo.caption %}{{ photo.caption }}{% else %}{{ photo.get_category_display }}{% endif %}"
+                            loading="lazy"
+                        >
+                    </a>
+                    <figcaption>
+                        <small>
+                            {{ photo.get_category_display }}{% if photo.caption %} – {{ photo.caption }}{% endif %}
+                        </small>
+                        {% if can_edit %}
+                            <form method="post"
+                                  action="{% url 'crags:photo_delete' photo.pk %}"
+                                  onsubmit="return confirm('Delete this photo?')">
+                                {% csrf_token %}
+                                <button type="submit" class="outline secondary">Delete</button>
+                            </form>
+                        {% endif %}
+                    </figcaption>
+                </figure>
+            {% endfor %}
+        </div>
+        <dialog class="photo-gallery" aria-label="Fotogalerie">
+            <div class="photo-gallery-content">
+                <button type="button" class="photo-gallery-close" data-gallery-close aria-label="Close gallery">×</button>
+                <button type="button" class="photo-gallery-previous" data-gallery-previous aria-label="Previous photo">‹</button>
+                <figure class="photo-gallery-figure">
+                    <img data-gallery-view alt="">
+                    <figcaption>
+                        <span data-gallery-caption></span>
+                        <span data-gallery-counter aria-live="polite"></span>
+                    </figcaption>
+                </figure>
+                <button type="button" class="photo-gallery-next" data-gallery-next aria-label="Next photo">›</button>
+            </div>
+        </dialog>
+    {% endif %}
+
+    {% if can_edit %}
+        <p><a href="{% url 'crags:photo_add' crag.pk %}" role="button" class="outline">Add photo</a></p>
+    {% endif %}
+</section>
+
+
+{% if crag.guidebook or crag.parking or crag.latitude != None or crag.longitude != None %}
+<section>
+    <h2>Location and access</h2>
+    {% if crag.guidebook %}<p><strong>Guidebook:</strong> {{ crag.guidebook }}</p>{% endif %}
+    {% if crag.parking %}<p><strong>Parking:</strong> {{ crag.parking|linebreaksbr }}</p>{% endif %}
+    {% if crag.latitude != None and crag.longitude != None %}
+        <p>
+            <strong>Coordinates:</strong>
+            <a href="https://www.google.com/maps/search/?api=1&amp;query={{ crag.latitude|unlocalize }},{{ crag.longitude|unlocalize }}">
+                {{ crag.latitude|unlocalize }}, {{ crag.longitude|unlocalize }}
+            </a>
+        </p>
+    {% endif %}
+</section>
+{% endif %}
+
+
+
+{% if crag.family_notes %}
+
+<section>
+
+    <h2>
+        Family notes
+    </h2>
+
+    <article>
+
+        {{ crag.family_notes|linebreaks }}
+
+    </article>
+
+</section>
+
+{% endif %}
+
+
+
+{% if crag.description %}
+
+<section>
+
+    <h2>
+        Further Information
+    </h2>
+
+    <p>
+        {{ crag.description|linebreaksbr }}
+    </p>
+
+</section>
+
+{% endif %}
+
+
+{% endblock %}

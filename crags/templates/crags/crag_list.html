@@ -1,0 +1,240 @@
+{% extends "base.html" %}
+
+
+{% block title %}
+Find crags – gr8base community
+{% endblock %}
+
+
+{% block content %}
+
+<section>
+
+    <h1>Find crags</h1>
+
+    <p>
+        Find family-friendly climbing crags for your next outing.
+    </p>
+
+</section>
+
+
+<section>
+
+    <form method="get">
+
+        <input
+            type="search"
+            name="q"
+            value="{{ query }}"
+            placeholder="Search crags or areas..."
+            aria-label="Search crags or areas"
+        >
+
+
+        <div class="grid">
+
+            <select
+                name="area"
+                aria-label="Area"
+            >
+
+                <option value="">
+                    All areas
+                </option>
+
+                {% for area in areas %}
+
+                    <option
+                        value="{{ area.name }}"
+                        {% if selected_area == area.name %}
+                            selected
+                        {% endif %}
+                    >
+                        {{ area.name }}
+                    </option>
+
+                {% endfor %}
+
+            </select>
+
+
+            <select
+                name="rating"
+                aria-label="Family rating"
+            >
+
+                <option value="">
+                    Family rating
+                </option>
+
+                <option
+                    value="5"
+                    {% if selected_rating == "5" %}selected{% endif %}
+                >
+                    5 stars
+                </option>
+
+                <option
+                    value="4"
+                    {% if selected_rating == "4" %}selected{% endif %}
+                >
+                    4+ stars
+                </option>
+
+                <option
+                    value="3"
+                    {% if selected_rating == "3" %}selected{% endif %}
+                >
+                    3+ stars
+                </option>
+
+                <option
+                    value="2"
+                    {% if selected_rating == "2" %}selected{% endif %}
+                >
+                    2+ stars
+                </option>
+
+                <option
+                    value="1"
+                    {% if selected_rating == "1" %}selected{% endif %}
+                >
+                    1+ stars
+                </option>
+
+            </select>
+
+        </div>
+
+
+        <div class="grid">
+
+            <button type="submit">
+                Search
+            </button>
+
+            <a
+                href="{% url 'crags:list' %}"
+                role="button"
+                class="secondary outline"
+            >
+                Clear filters
+            </a>
+
+        </div>
+
+    </form>
+
+</section>
+
+
+<section>
+
+    <p>
+        <strong>{{ crags|length }}</strong>
+        crags found
+    </p>
+
+
+    <div class="crag-list">
+
+        {% for crag in crags %}
+
+            {% with photo=crag.photos.first %}
+
+            <article class="crag-card{% if photo %} has-photo{% endif %}">
+
+
+                {% if photo %}
+
+                        <a href="{% url 'crags:detail' crag.pk %}">
+
+                            <img
+                                class="crag-card-image"
+                                src="{{ photo.image.url }}"
+                                alt="{{ crag.name }}"
+                            >
+
+                        </a>
+
+                {% endif %}
+
+
+                <div class="crag-card-body">
+
+                <header>
+
+                    <h2>
+
+                        <a href="{% url 'crags:detail' crag.pk %}">
+                            {{ crag.name }}
+                        </a>
+                        {% if crag.status == "PENDING" %}<small><mark>Pending review</mark></small>{% endif %}
+                    </h2>
+
+                    <span class="area">
+                        {{ crag.area.name }}
+                    </span>
+
+                </header>
+
+
+                <div class="crag-meta">
+
+                    {% if crag.rating_babies %}
+                        <span>Babies: ★ {{ crag.rating_babies }}/5</span>
+                    {% endif %}
+                    {% if crag.rating_ages_2_4 %}
+                        <span>Ages 2–4: ★ {{ crag.rating_ages_2_4 }}/5</span>
+                    {% endif %}
+                    {% if crag.rating_ages_5_plus %}
+                        <span>Ages 5+: ★ {{ crag.rating_ages_5_plus }}/5</span>
+                    {% endif %}
+
+
+                    {% if crag.approach_minutes %}
+
+                        <span>
+                            🥾 {{ crag.approach_minutes }} min
+                        </span>
+
+                    {% endif %}
+
+
+                    {% if crag.orientation %}
+
+                        <span>
+                            Aspect:
+                            {{ crag.get_orientation_display }}
+                        </span>
+
+                    {% endif %}
+
+                </div>
+
+                </div>
+
+            </article>
+
+            {% endwith %}
+
+
+        {% empty %}
+
+            <article>
+
+                <p>
+                    No matching crags found.
+                </p>
+
+            </article>
+
+        {% endfor %}
+
+    </div>
+
+</section>
+
+
+{% endblock %}

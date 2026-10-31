@@ -1,0 +1,113 @@
+services:
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile
+
+    command: sh -c "python manage.py collectstatic --noinput && gunicorn gr8base.wsgi:application --bind 0.0.0.0:8000"
+    environment:
+      DJANGO_DEBUG: "False"
+      DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY}
+      DJANGO_ALLOWED_HOSTS: gr8base.com,www.gr8base.com
+      DJANGO_CSRF_TRUSTED_ORIGINS: https://gr8base.com,https://www.gr8base.com
+      RESEND_API_KEY: ${RESEND_API_KEY}
+
+      POSTGRES_DB: familienfelsen
+      POSTGRES_USER: familienfelsen
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_HOST: db
+      POSTGRES_PORT: "5432"
+
+    volumes:
+      - .:/app
+      - ${MEDIA_DIR:-./data/media}:/app/media
+
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - default
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import os, urllib.request as u; r = u.Request('http://127.0.0.1:8000/healthz/', headers={'Host': os.environ['DJANGO_ALLOWED_HOSTS'].split(',')[0], 'X-Forwarded-Proto': 'https'}); u.urlopen(r, timeout=4).status == 200 or exit(1)",
+        ]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 40s
+    restart: unless-stopped
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    configs:
+      - source: caddyfile
+        target: /etc/caddy/Caddyfile
+    volumes:
+      - ./data/caddy/data:/data
+      - ./data/caddy/config:/config
+      - ${MEDIA_DIR:-./data/media}:/srv/media:ro
+    depends_on:
+      web:
+        condition: service_healthy
+    healthcheck:
+      # Goes through the reverse proxy to Django, not just "Caddy is running".
+      test:
+        [
+          "CMD-SHELL",
+          "wget -q -O /dev/null --header 'Host: gr8base.com' http://127.0.0.1/healthz/"
+        ]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    networks:
+      - default
+  cloudflared:
+    image: cloudflare/cloudflared:2026.10.3
+    restart: unless-stopped
+    command: tunnel --no-autoupdate run --token ${CLOUDFLARE_TUNNEL_TOKEN}
+    depends_on:
+      - caddy
+    networks:
+      - default
+  db:
+    image: postgres:17
+
+    environment:
+      POSTGRES_DB: familienfelsen
+      POSTGRES_USER: familienfelsen
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+
+    volumes:
+      - ./data/postgres:/var/lib/postgresql/data
+
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U familienfelsen -d familienfelsen"
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - default
+
+configs:
+  caddyfile:
+    content: |
+      http://gr8base.com, http://www.gr8base.com {
+          encode zstd gzip
+          handle_path /media/* {
+              root * /srv/media
+              file_server
+          }
+          # Cloudflare terminates TLS; tell Django the original request was HTTPS (avoids a redirect loop).
+          reverse_proxy web:8000 {
+              header_up X-Forwarded-Proto https
+          }
+      }

@@ -1,0 +1,135 @@
+{% load static %}
+
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+
+    <meta
+        name="viewport"
+        content="width=device-width, initial-scale=1"
+    >
+
+    <meta
+        name="description"
+        content="gr8base community – find and share family-friendly climbing crags."
+    >
+
+    <title>
+        {% block title %}
+            gr8base community
+        {% endblock %}
+    </title>
+
+    <!-- Pico CSS -->
+    <link
+        rel="stylesheet"
+        href="{% static 'css/pico.min.css' %}"
+    >
+
+    <!-- Project-specific CSS -->
+    <link
+        rel="stylesheet"
+        href="{% static 'css/main.css' %}"
+    >
+</head>
+
+
+<body>
+
+    <!-- Main navigation -->
+      <header class="container">
+        <nav class="site-nav">
+
+            <ul>
+                <li>
+                    <strong>
+                        <a href="{% url 'home' %}" class="brand">gr8base community</a>
+                    </strong>
+                </li>
+            </ul>
+
+            <input type="checkbox" id="nav-toggle" class="nav-toggle" aria-label="Open or close menu">
+            <label for="nav-toggle" class="nav-burger" aria-hidden="true">☰</label>
+
+            <ul class="nav-links">
+                <li><a href="{% url 'crags:list' %}">Crags</a></li>
+                <li><a href="{% url 'docs' %}">Help</a></li>
+
+                {% if user.is_authenticated %}
+                    <li><a href="{% url 'crags:mine' %}">My crags</a></li>
+                    <li><a href="{% url 'crags:create' %}">Add a crag</a></li>
+                    {% if user.is_staff %}
+                        <li><a href="{% url 'stats:index' %}">Stats</a></li>
+                        <li><a href="{% url 'admin:index' %}">Admin</a></li>
+                    {% endif %}
+                    <li>{{ user.username }}</li>
+                    <li>
+                        <form method="post" action="{% url 'account_logout' %}" class="nav-form">
+                            {% csrf_token %}
+                            <button type="submit" class="outline secondary">Log out</button>
+                        </form>
+                    </li>
+                {% else %}
+                    <li><a href="{% url 'account_login' %}">Log in</a></li>
+                    <li>
+                        <a href="{% url 'account_signup' %}" role="button" class="outline">Sign up</a>
+                    </li>
+                {% endif %}
+            </ul>
+
+        </nav>
+    </header>
+
+
+    <!-- Page content -->
+    <main class="container">
+
+        {% if messages %}
+            {% for message in messages %}
+                <article class="message {{ message.tags }}">
+                    <small>{{ message }}</small>
+                </article>
+            {% endfor %}
+        {% endif %}
+
+        {% block content %}
+        {% endblock %}
+
+    </main>i
+
+
+    <!-- Footer -->
+    <footer class="container site-footer">
+
+        <hr>
+
+        <div class="footer-content">
+
+            <small>
+                <strong>gr8base community</strong><br>
+                Find and share family-friendly climbing crags.
+            </small>
+
+            <small>
+                <a href="{% url 'docs' %}">
+                    Documentation
+                </a>
+                &middot;
+                <a href="{% url 'doc_page' 'impressum' %}">Legal notice</a>
+                &middot;
+                <a href="{% url 'doc_page' 'privacy' %}">Privacy</a>
+                &middot;
+                <a href="{% url 'doc_page' 'terms' %}">Terms</a>
+            </small>
+
+        </div>
+
+    </footer>
+
+    <script src="{% static 'js/photo-gallery.js' %}" defer></script>
+    <script src="{% static 'js/location-picker.js' %}" defer></script>
+</body>
+
+</html>

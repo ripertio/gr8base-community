@@ -1,0 +1,31 @@
+# runtime data
+/data/postgres/
+/data/media/
+/data/caddy
+/media/
+
+# Secrets
+.env
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.sqlite3
+.coverage
+htmlcov/
+
+# Not needed for development >> because Django as long as DEBUG is false Django serves CSS directly from static/
+staticfiles/
+
+# Editor / OS / tooling
+.DS_Store
+.idea/
+.vscode/
+.claude/
+
+# Backups and server-specific scripts (data-dev/ itself is tracked on purpose)
+data-dev/gr8base-backups
+gr8base-backup.log
+scripts/deploy_on_server*

@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+
+{% block title %}My crags – gr8base community{% endblock %}
+
+{% block content %}
+    <h1>My crags</h1>
+
+    <p><a href="{% url 'crags:create' %}" role="button">Add a new crag</a></p>
+
+    {% for crag in crags %}
+        <article>
+            <header>
+                <a href="{% url 'crags:detail' crag.pk %}">{{ crag.name }}</a>
+                <small>– {{ crag.get_status_display }}</small>
+            </header>
+            {{ crag.area.name }}
+            <footer>
+                <a href="{% url 'crags:edit' crag.pk %}">Edit</a>
+                <form method="post"
+                      action="{% url 'crags:delete' crag.pk %}"
+                      style="display: inline"
+                      onsubmit="return confirm('Really delete this crag and all its photos? This cannot be undone.')">
+                    {% csrf_token %}
+                    <button type="submit"
+                            style="display: inline; width: auto; margin: 0; padding: 0; border: 0; background: none; color: var(--pico-primary); text-decoration: underline; cursor: pointer">Delete</button>
+                </form>
+            </footer>
+        </article>
+    {% empty %}
+        <p>You haven't added any crags yet.</p>
+    {% endfor %}
+{% endblock %}

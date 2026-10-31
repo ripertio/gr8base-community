@@ -1,0 +1,10 @@
+Django>=5.2,<6
+gunicorn~=26.2
+whitenoise~=6.12
+psycopg[binary]~=3.3
+Pillow~=13.0
+pillow-heif~=1.8
+django-allauth~=65.21
+argon2-cffi~=25.1
+django-anymail[resend]~=15.2
+markdown~=3.11

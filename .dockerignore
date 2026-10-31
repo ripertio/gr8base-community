@@ -1,0 +1,27 @@
+# Runtime data
+data/
+data-dev/
+media/
+
+# Git / CI
+.git/
+.gitignore
+.github/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+*.sqlite3
+
+# Local environment
+.env
+.claude/
+
+# Database dumps
+*.dump
+
+# macOS
+.DS_Store

@@ -15,7 +15,7 @@
         {% include "stats/_chart.html" with c=users label="Users over time" %}
     </article>
 
-
+    {% if is_admin %}
     <article>
         <header>Crag Kings &amp; Queens: the Top 3 Crag Creators</header>
         {% if contributors.bars %}
@@ -46,4 +46,5 @@
             &nbsp; <span style="color: #d97706">&#9548;&#9548;</span> Logged-in users
         </small>
     </article>
+    {% endif %}
 {% endblock %}

@@ -1,7 +1,6 @@
 from datetime import timedelta
 
 from django.contrib.auth import get_user_model
-from django.contrib.auth.decorators import user_passes_test
 from django.db.models import Count
 from django.shortcuts import render
 from django.utils import timezone
@@ -115,7 +114,6 @@ def top_contributors(limit=3):
     }
 
 
-@user_passes_test(lambda u: u.is_active and u.is_staff, login_url="account_login")
 def stats(request):
     today = timezone.localdate()
     User = get_user_model()
@@ -124,16 +122,23 @@ def stats(request):
     crag_dates = [d.date() for d in Crag.objects.values_list("created_at", flat=True)]
     first = min(user_dates + crag_dates + [today - timedelta(days=29)])
 
-    rows = {d: (n, m) for d, n, m in DailyHits.objects.values_list(
-        "date", "count", "logged_in_count")}
-    days = [first + timedelta(days=i) for i in range((today - first).days + 1)]
-    visitors = [(d, rows.get(d, (0, 0))[0]) for d in days]
-    members = [(d, rows.get(d, (0, 0))[1]) for d in days]
-
-    return render(request, "stats/stats.html", {
-        "visitors": chart(visitors, "Visitors", extra=members),
-        "visitors_today": rows.get(today, (0, 0))[0],
+    context = {
         "users": chart(cumulative(user_dates, first, today), "Users"),
         "crags": chart(cumulative(crag_dates, first, today), "Crags"),
-        "contributors": top_contributors(),
-    })
+    }
+
+    # visitors and contributors are for admins only
+    if request.user.is_active and request.user.is_staff:
+        rows = {d: (n, m) for d, n, m in DailyHits.objects.values_list(
+            "date", "count", "logged_in_count")}
+        days = [first + timedelta(days=i) for i in range((today - first).days + 1)]
+        visitors = [(d, rows.get(d, (0, 0))[0]) for d in days]
+        members = [(d, rows.get(d, (0, 0))[1]) for d in days]
+        context.update({
+            "is_admin": True,
+            "visitors": chart(visitors, "Visitors", extra=members),
+            "visitors_today": rows.get(today, (0, 0))[0],
+            "contributors": top_contributors(),
+        })
+
+    return render(request, "stats/stats.html", context)

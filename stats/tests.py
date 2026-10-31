@@ -18,15 +18,25 @@ class CumulativeTests(TestCase):
 
 
 class StatsViewTests(TestCase):
-    def test_staff_only(self):
-        User = get_user_model()
-        self.assertEqual(self.client.get(reverse("stats:index")).status_code, 302)
-        User.objects.create_user("u", "u@example.com", "pw")
+    def test_public_sees_only_users_and_crags(self):
+        r = self.client.get(reverse("stats:index"))
+        self.assertEqual(r.status_code, 200)
+        self.assertContains(r, "Users over time")
+        self.assertContains(r, "Crags over time")
+        self.assertNotContains(r, "Daily visitors")
+        self.assertNotContains(r, "Crag Kings")
+
+    def test_regular_user_sees_no_admin_charts(self):
+        get_user_model().objects.create_user("u", "u@example.com", "pw")
         self.client.login(username="u", password="pw")
-        self.assertEqual(self.client.get(reverse("stats:index")).status_code, 302)
-        User.objects.create_user("s", "s@example.com", "pw", is_staff=True)
+        self.assertNotContains(self.client.get(reverse("stats:index")), "Daily visitors")
+
+    def test_staff_sees_all_charts(self):
+        get_user_model().objects.create_user("s", "s@example.com", "pw", is_staff=True)
         self.client.login(username="s", password="pw")
-        self.assertEqual(self.client.get(reverse("stats:index")).status_code, 200)
+        r = self.client.get(reverse("stats:index"))
+        self.assertContains(r, "Daily visitors")
+        self.assertContains(r, "Crag Kings")
 
 
 class TopContributorsTests(TestCase):

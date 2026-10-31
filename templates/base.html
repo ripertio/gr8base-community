@@ -55,13 +55,13 @@
 
             <ul class="nav-links">
                 <li><a href="{% url 'crags:list' %}">Crags</a></li>
+                <li><a href="{% url 'stats:index' %}">Stats</a></li>
                 <li><a href="{% url 'docs' %}">Help</a></li>
 
                 {% if user.is_authenticated %}
                     <li><a href="{% url 'crags:mine' %}">My crags</a></li>
                     <li><a href="{% url 'crags:create' %}">Add a crag</a></li>
                     {% if user.is_staff %}
-                        <li><a href="{% url 'stats:index' %}">Stats</a></li>
                         <li><a href="{% url 'admin:index' %}">Admin</a></li>
                     {% endif %}
                     <li><a href="{% url 'profiles:detail' user.username %}">{{ user.username }}</a></li>

@@ -8,6 +8,10 @@ from crags.models import Area, Crag
 
 from .models import DailyHits
 from .views import cumulative, top_contributors
+from crags.models import Area, Crag
+
+from .models import DailyHits
+from .views import cumulative, top_contributors
 
 
 class CumulativeTests(TestCase):
@@ -18,6 +22,16 @@ class CumulativeTests(TestCase):
 
 
 class StatsViewTests(TestCase):
+    def test_public_sees_only_users_and_crags(self):
+        r = self.client.get(reverse("stats:index"))
+        self.assertEqual(r.status_code, 200)
+        self.assertContains(r, "Users over time")
+        self.assertContains(r, "Crags over time")
+        self.assertNotContains(r, "Daily visitors")
+        self.assertNotContains(r, "Crag Kings")
+
+    def test_regular_user_sees_no_admin_charts(self):
+        get_user_model().objects.create_user("u", "u@example.com", "pw")
     def test_public_sees_only_users_and_crags(self):
         r = self.client.get(reverse("stats:index"))
         self.assertEqual(r.status_code, 200)

@@ -4,7 +4,9 @@ from django.contrib.auth import get_user_model
 from django.test import TestCase
 from django.urls import reverse
 
-from .views import cumulative
+from crags.models import Area, Crag
+
+from .views import cumulative, top_contributors
 
 
 class CumulativeTests(TestCase):
@@ -24,3 +26,17 @@ class StatsViewTests(TestCase):
         User.objects.create_user("s", "s@example.com", "pw", is_staff=True)
         self.client.login(username="s", password="pw")
         self.assertEqual(self.client.get(reverse("stats:index")).status_code, 200)
+
+
+class TopContributorsTests(TestCase):
+    def test_ranks_and_hides_private_names(self):
+        User = get_user_model()
+        a = User.objects.create_user("alice", "a@example.com", "pw", profile_public=True)
+        b = User.objects.create_user("bob", "b@example.com", "pw")
+        area = Area.objects.create(name="Allgau")
+        for i in range(2):
+            Crag.objects.create(name=f"A{i}", area=area, created_by=a)
+        Crag.objects.create(name="B", area=area, created_by=b)
+        bars = top_contributors()["bars"]
+        self.assertEqual([x["name"] for x in bars], ["alice", "Anonymous"])
+        self.assertEqual([x["score"] for x in bars], [2, 1])

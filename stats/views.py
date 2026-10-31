@@ -2,6 +2,7 @@ from datetime import timedelta
 
 from django.contrib.auth import get_user_model
 from django.contrib.auth.decorators import user_passes_test
+from django.db.models import Count
 from django.shortcuts import render
 from django.utils import timezone
 
@@ -71,6 +72,42 @@ def chart(series, y_label, bars=False):
     }
 
 
+MEDALS = ("#d4af37", "#a8a9ad", "#cd7f32")  # gold, silver, bronze
+BAR_LEFT, BAR_H, BAR_GAP = 120, 28, 14
+
+
+def top_contributors(limit=3):
+    """Users who created the most crags.
+
+    Only users who made their profile public are named; everyone else is
+    shown as "Anonymous".
+    """
+    User = get_user_model()
+    users = User.objects.annotate(n_crags=Count("crags")).order_by("id")
+    scored = sorted(((u, u.n_crags) for u in users), key=lambda t: -t[1])
+    scored = [t for t in scored if t[1] > 0][:limit]
+    top = scored[0][1] if scored else 1
+    plot_w = WIDTH - BAR_LEFT - 48
+    bars = []
+    for i, (u, score) in enumerate(scored):
+        y = TOP + i * (BAR_H + BAR_GAP)
+        bars.append({
+            "name": u.username if u.profile_public else "Anonymous",
+            "score": score,
+            "y": y,
+            "mid": y + BAR_H / 2,
+            "w": max(score / top * plot_w, 2),
+            "medal": MEDALS[i],
+            "rank": i + 1,
+        })
+    return {
+        "width": WIDTH,
+        "height": TOP * 2 + max(len(bars), 1) * (BAR_H + BAR_GAP),
+        "left": BAR_LEFT,
+        "bars": bars,
+    }
+
+
 @user_passes_test(lambda u: u.is_active and u.is_staff, login_url="account_login")
 def stats(request):
     today = timezone.now().date()
@@ -83,4 +120,5 @@ def stats(request):
     return render(request, "stats/stats.html", {
         "users": chart(cumulative(user_dates, first, today), "Users"),
         "crags": chart(cumulative(crag_dates, first, today), "Crags"),
+        "contributors": top_contributors(),
     })

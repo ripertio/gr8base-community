@@ -45,7 +45,7 @@ main() {
 
     echo "previous: $PREV"
     git fetch origin main
-    git pull --ff-only origin/main
+    git pull --ff-only origin main
     docker compose build web
 
     # backup.sh prints "Done: <dir> (<size>)" last; that is how we learn the dir.

@@ -31,9 +31,9 @@ def cumulative(dates, start, end):
     return series
 
 
-def chart(series, y_label, bars=False):
+def chart(series, y_label, bars=False, extra=None):
     """Turn [(date, value)] into SVG coordinates for the template."""
-    top = max((v for _, v in series), default=0) or 1
+    top = max((v for _, v in series + (extra or [])), default=0) or 1
     n = len(series)
     plot_w = WIDTH - LEFT - RIGHT
     plot_h = HEIGHT - TOP - BOTTOM
@@ -43,6 +43,10 @@ def chart(series, y_label, bars=False):
         (LEFT + i * step, base - (v / top) * plot_h) for i, (_, v) in enumerate(series)
     ]
     line = " ".join(f"{x:.1f},{y:.1f}" for x, y in points)
+    line2 = " ".join(
+        f"{LEFT + i * step:.1f},{base - (v / top) * plot_h:.1f}"
+        for i, (_, v) in enumerate(extra or [])
+    )
     mid = n // 2
     return {
         "width": WIDTH,
@@ -65,6 +69,7 @@ def chart(series, y_label, bars=False):
             for i, anchor in ((0, "start"), (mid, "middle"), (n - 1, "end"))
         ] if series else [],
         "line": line,
+        "line2": line2,
         "area": f"{LEFT},{base} {line} {points[-1][0]:.1f},{base}" if points else "",
         "bars": [
             {"x": f"{x - step * 0.4:.1f}", "y": f"{y:.1f}",
@@ -119,15 +124,15 @@ def stats(request):
     crag_dates = [d.date() for d in Crag.objects.values_list("created_at", flat=True)]
     first = min(user_dates + crag_dates + [today - timedelta(days=29)])
 
-    hits = dict(DailyHits.objects.values_list("date", "count"))
-    visitors = [
-        (first + timedelta(days=i), hits.get(first + timedelta(days=i), 0))
-        for i in range((today - first).days + 1)
-    ]
+    rows = {d: (n, m) for d, n, m in DailyHits.objects.values_list(
+        "date", "count", "logged_in_count")}
+    days = [first + timedelta(days=i) for i in range((today - first).days + 1)]
+    visitors = [(d, rows.get(d, (0, 0))[0]) for d in days]
+    members = [(d, rows.get(d, (0, 0))[1]) for d in days]
 
     return render(request, "stats/stats.html", {
-        "visitors": chart(visitors, "Visitors", bars=True),
-        "visitors_today": hits.get(today, 0),
+        "visitors": chart(visitors, "Visitors", extra=members),
+        "visitors_today": rows.get(today, (0, 0))[0],
         "users": chart(cumulative(user_dates, first, today), "Users"),
         "crags": chart(cumulative(crag_dates, first, today), "Crags"),
         "contributors": top_contributors(),

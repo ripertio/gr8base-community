@@ -5,20 +5,17 @@
 {% block content %}
     <h1>Statistics</h1>
 
-    <article>
-        <header>Daily visitors (unique browsers): <strong>{{ visitors_today }}</strong> today</header>
-        {% include "stats/_chart.html" with c=visitors label="Daily visitors" %}
-    </article>
-
-    <article>
-        <header>Users: <strong>{{ users.latest }}</strong></header>
-        {% include "stats/_chart.html" with c=users label="Users over time" %}
-    </article>
 
     <article>
         <header>Crags: <strong>{{ crags.latest }}</strong></header>
         {% include "stats/_chart.html" with c=crags label="Crags over time" %}
     </article>
+    <article>
+        <header>Users: <strong>{{ users.latest }}</strong></header>
+        {% include "stats/_chart.html" with c=users label="Users over time" %}
+    </article>
+
+
     <article>
         <header>Crag Kings &amp; Queens: the Top 3 Crag Creators</header>
         {% if contributors.bars %}
@@ -40,5 +37,13 @@
         {% else %}
             <p>No contributions yet.</p>
         {% endif %}
+    </article>
+    <article>
+        <header>Daily visitors (unique browsers): <strong>{{ visitors_today }}</strong> today</header>
+        {% include "stats/_chart.html" with c=visitors label="Daily visitors" %}
+        <small>
+            <span style="color: var(--pico-primary)">&#9644;</span> All visitors
+            &nbsp; <span style="color: #d97706">&#9548;&#9548;</span> Logged-in users
+        </small>
     </article>
 {% endblock %}

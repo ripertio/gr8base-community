@@ -6,6 +6,7 @@ class DailyHits(models.Model):
 
     date = models.DateField(unique=True)
     count = models.PositiveIntegerField(default=0)
+    logged_in_count = models.PositiveIntegerField(default=0)
 
     class Meta:
         ordering = ["date"]

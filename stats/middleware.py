@@ -13,7 +13,7 @@ class UniqueVisitorMiddleware:
     """Count each browser at most once per day.
 
     A cookie holding today's date that expires at midnight marks a browser as
-    counted. Nothing identifying is stored on the server, only the counter.
+    counted, and whether it was seen logged in. Nothing identifying is stored on the server, only the counter.
     """
 
     def __init__(self, get_response):
@@ -31,18 +31,28 @@ class UniqueVisitorMiddleware:
 
         now = timezone.localtime()
         today = now.date().isoformat()
-        if request.COOKIES.get(COOKIE) == today:
+        # cookie is "<date>" for anonymous browsers, "<date>:u" once counted as logged in
+        seen = request.COOKIES.get(COOKIE, "")
+        seen_date, _, seen_user = seen.partition(":")
+        is_user = request.user.is_authenticated
+        counted_today = seen_date == today
+        if counted_today and (seen_user or not is_user):
             return response
 
         hits, _ = DailyHits.objects.get_or_create(date=now.date())
-        DailyHits.objects.filter(pk=hits.pk).update(count=F("count") + 1)
+        updates = {}
+        if not counted_today:
+            updates["count"] = F("count") + 1
+        if is_user:
+            updates["logged_in_count"] = F("logged_in_count") + 1
+        DailyHits.objects.filter(pk=hits.pk).update(**updates)
 
         midnight = timezone.make_aware(
             datetime.combine(now.date() + timedelta(days=1), time.min)
         )
         response.set_cookie(
             COOKIE,
-            today,
+            f"{today}:u" if is_user else today,
             max_age=int((midnight - now).total_seconds()),
             secure=request.is_secure(),
             httponly=True,

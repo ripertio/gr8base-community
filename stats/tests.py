@@ -59,3 +59,12 @@ class UniqueVisitorTests(TestCase):
         self.client.login(username="s", password="pw")
         self.client.get("/")
         self.assertFalse(DailyHits.objects.exists())
+
+    def test_login_after_anonymous_visit_counts_as_member_once(self):
+        get_user_model().objects.create_user("u", "u@example.com", "pw")
+        self.client.get("/")
+        self.client.login(username="u", password="pw")
+        self.client.get("/")
+        self.client.get("/")
+        hits = DailyHits.objects.get()
+        self.assertEqual((hits.count, hits.logged_in_count), (1, 1))

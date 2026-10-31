@@ -78,7 +78,7 @@ Settings are read from environment variables (see `gr8base/settings.py`). For pr
 | --- | --- |
 | `gr8base/` | Project settings, URLs, docs pages, health check |
 | `crags/` | Crags, areas, photos, features; views, forms, templates, `seed_dev_users` command |
-| `accounts/` | Custom user model |
+| `accounts/` | Custom user model and user profiles (bio, avatar, public/private) |
 | `stats/` | Staff statistics page (users and crags over time) |
 | `content/` | Markdown documentation pages |
 | `templates/`, `static/` | Base templates, CSS, JavaScript |

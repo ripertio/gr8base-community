@@ -67,7 +67,7 @@ def parse_coordinates(value):
     return latitude, longitude
 
 
-def process_image(upload):
+def process_image(upload, max_edge=MAX_EDGE):
     """Validate an upload and return it as a resized WEBP ContentFile."""
     if upload.size > MAX_UPLOAD_BYTES:
         raise ValidationError("The image is too large (maximum 15 MB).")
@@ -84,7 +84,7 @@ def process_image(upload):
 
         img = ImageOps.exif_transpose(img)
         img = img.convert("RGB")
-        img.thumbnail((MAX_EDGE, MAX_EDGE))
+        img.thumbnail((max_edge, max_edge))
 
         buffer = io.BytesIO()
         img.save(buffer, format="WEBP", quality=80, method=4)

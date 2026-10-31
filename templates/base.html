@@ -64,7 +64,7 @@
                         <li><a href="{% url 'stats:index' %}">Stats</a></li>
                         <li><a href="{% url 'admin:index' %}">Admin</a></li>
                     {% endif %}
-                    <li>{{ user.username }}</li>
+                    <li><a href="{% url 'profiles:detail' user.username %}">{{ user.username }}</a></li>
                     <li>
                         <form method="post" action="{% url 'account_logout' %}" class="nav-form">
                             {% csrf_token %}

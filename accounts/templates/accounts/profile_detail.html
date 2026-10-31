@@ -1,0 +1,43 @@
+{% extends "base.html" %}
+
+{% block title %}{{ profile_user.username }} – gr8base community{% endblock %}
+
+{% block content %}
+    <h1>{{ profile_user.username }}</h1>
+
+    {% if profile_user.avatar %}
+        <img src="{{ profile_user.avatar.url }}"
+             alt="Avatar of {{ profile_user.username }}"
+             width="120" height="120"
+             style="border-radius: 50%; object-fit: cover">
+    {% endif %}
+
+    {% if profile_user.bio %}
+        <p>{{ profile_user.bio|linebreaksbr }}</p>
+    {% endif %}
+    <p><small>Member since {{ profile_user.date_joined|date:"F Y" }}</small></p>
+
+    {% if is_owner %}
+        <p>
+            {% if profile_user.profile_public %}
+                Your profile is <strong>public</strong>.
+            {% else %}
+                Your profile is <strong>private</strong>, only you can see it.
+            {% endif %}
+            <a href="{% url 'profiles:edit' %}">Edit profile</a> ·
+            <a href="{% url 'account_email' %}">Email</a> ·
+            <a href="{% url 'account_change_password' %}">Password</a> ·
+            <a href="{% url 'crags:mine' %}">My crags</a>
+        </p>
+    {% endif %}
+
+    <h2>Crags</h2>
+    {% for crag in crags %}
+        <article>
+            <a href="{% url 'crags:detail' crag.pk %}">{{ crag.name }}</a>
+            <small>– {{ crag.area.name }}</small>
+        </article>
+    {% empty %}
+        <p>No crags yet.</p>
+    {% endfor %}
+{% endblock %}

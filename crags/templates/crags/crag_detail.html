@@ -229,5 +229,8 @@
 
 {% endif %}
 
+{% if crag.created_by.profile_public %}
+    <p><small>Added by <a href="{% url 'profiles:detail' crag.created_by.username %}">{{ crag.created_by.username }}</a></small></p>
+{% endif %}
 
 {% endblock %}

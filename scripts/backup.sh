@@ -10,6 +10,7 @@
 #             BACKUP_REMOTE="user@host:/backups/gr8base"      (rsync over ssh)
 #             BACKUP_REMOTE="rclone:b2remote:bucket/gr8base"   (rclone)
 #           A backup on the same disk does not survive losing the server.
+#           env.backup (secrets) is never sent off-site; keep .env elsewhere.
 # Alerts   set BACKUP_HEARTBEAT_URL (e.g. a healthchecks.io ping URL). It is
 #          requested only after a fully successful run, so a failed or missing
 #          backup makes the monitoring service alert you.
@@ -103,9 +104,9 @@ prune_log gr8base-backup.log
 if [[ -n "$BACKUP_REMOTE" ]]; then
     echo "==> Copying off-site to $BACKUP_REMOTE"
     if [[ "$BACKUP_REMOTE" == rclone:* ]]; then
-        rclone copy "$BACKUP_DIR" "${BACKUP_REMOTE#rclone:}"
+        rclone copy --exclude env.backup "$BACKUP_DIR" "${BACKUP_REMOTE#rclone:}"
     else
-        rsync -a --delete "$BACKUP_DIR/" "$BACKUP_REMOTE/"
+        rsync -a --delete --exclude env.backup "$BACKUP_DIR/" "$BACKUP_REMOTE/"
     fi
 else
     echo "WARNING: BACKUP_REMOTE not set - backup exists only on this machine" >&2

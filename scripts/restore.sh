@@ -197,7 +197,8 @@ docker compose up -d web
 if [[ -n "$CODE_COMMIT" ]]; then
     entry="$(date +%FT%T%z) $CODE_ACTION from=$HEAD_BEFORE to=$CODE_COMMIT backup=$SRC"
     echo "$entry" >> "$BACKUP_DIR/deploy.log"
-    echo "$entry" >> gr8base-backup.log
+    mkdir -p logs
+    echo "$entry" >> logs/gr8base-backup.log
 fi
 
 echo

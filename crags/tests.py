@@ -688,3 +688,113 @@ class ProcessImageTests(SimpleTestCase):
         upload = SimpleUploadedFile("photo.bmp", buffer.getvalue(), content_type="image/bmp")
         with self.assertRaisesMessage(ValidationError, "Please upload"):
             process_image(upload)
+
+
+class EventLoggingTests(CragTestBase):
+    """Events are logged with IDs only: no names, emails or filenames."""
+
+    def assertNoPersonalData(self, logs, *values):
+        output = "\n".join(logs.output)
+        for value in values:
+            self.assertNotIn(value, output)
+
+    def test_create_logs_ids_only(self):
+        self.client.force_login(self.bob)
+        with self.assertLogs("crags.views", "INFO") as logs:
+            self.client.post(
+                reverse("crags:create"), form_data(self.area, name="Secret Name")
+            )
+        crag = Crag.objects.get(name="Secret Name")
+        self.assertIn(
+            f"crag created id={crag.pk} user={self.bob.pk} status={Crag.Status.DRAFT.value}", logs.output[0]
+        )
+        self.assertNoPersonalData(logs, "Secret Name", "bob", "example.com")
+
+    def test_create_with_photos_logs_upload(self):
+        self.client.force_login(self.bob)
+        with tempfile.TemporaryDirectory() as media_root, override_settings(MEDIA_ROOT=media_root):
+            with self.assertLogs("crags.views", "INFO") as logs:
+                self.client.post(
+                    reverse("crags:create"),
+                    {
+                        **form_data(self.area, name="With photo"),
+                        "category": Photo.Category.CRAG,
+                        "images": [image_upload("holiday-secret.jpg")],
+                    },
+                )
+        crag = Crag.objects.get(name="With photo")
+        self.assertTrue(
+            any(
+                f"photos uploaded crag={crag.pk} user={self.bob.pk} count=1" in line
+                for line in logs.output
+            )
+        )
+        self.assertNoPersonalData(logs, "holiday-secret", "With photo")
+
+    def test_failed_create_logs_no_creation(self):
+        self.client.force_login(self.bob)
+        with self.assertNoLogs("crags.views", "INFO"):
+            self.client.post(
+                reverse("crags:create"),
+                {
+                    **form_data(self.area, name="Invalid photo"),
+                    "category": Photo.Category.CRAG,
+                    "images": [
+                        SimpleUploadedFile("x.jpg", b"not an image", content_type="image/jpeg")
+                    ],
+                },
+            )
+
+    def test_edit_logs_update(self):
+        self.client.force_login(self.alice)
+        with self.assertLogs("crags.views", "INFO") as logs:
+            self.client.post(
+                reverse("crags:edit", args=[self.draft.pk]),
+                form_data(self.area, name="Renamed"),
+            )
+        self.assertIn(
+            f"crag updated id={self.draft.pk} user={self.alice.pk} status={Crag.Status.DRAFT.value}",
+            logs.output[0],
+        )
+        self.assertNoPersonalData(logs, "Renamed", "Draft entry")
+
+    def test_delete_logs_deletion(self):
+        self.client.force_login(self.alice)
+        pk = self.draft.pk
+        with self.assertLogs("crags.views", "INFO") as logs:
+            self.client.post(reverse("crags:delete", args=[pk]))
+        self.assertIn(f"crag deleted id={pk} user={self.alice.pk}", logs.output[0])
+        self.assertNoPersonalData(logs, "Draft entry")
+
+    def test_photo_delete_logs_deletion(self):
+        with tempfile.TemporaryDirectory() as media_root, override_settings(MEDIA_ROOT=media_root):
+            photo = Photo.objects.create(
+                crag=self.draft,
+                image=process_image(image_upload("a.jpg")),
+                category=Photo.Category.CRAG,
+                uploaded_by=self.alice,
+            )
+            self.client.force_login(self.alice)
+            with self.assertLogs("crags.views", "INFO") as logs:
+                self.client.post(reverse("crags:photo_delete", args=[photo.pk]))
+        self.assertIn(
+            f"photo deleted id={photo.pk} crag={self.draft.pk} user={self.alice.pk}",
+            logs.output[0],
+        )
+
+    def test_rejected_images_log_the_reason(self):
+        cases = {
+            "too large": SimpleUploadedFile("a.jpg", b"0" * (MAX_UPLOAD_BYTES + 1)),
+            "unreadable": SimpleUploadedFile("private-name.jpg", b"not an image"),
+        }
+        bmp = io.BytesIO()
+        Image.new("RGB", (8, 8)).save(bmp, format="BMP")
+        cases["format"] = SimpleUploadedFile("a.bmp", bmp.getvalue())
+
+        for reason, upload in cases.items():
+            with self.subTest(reason=reason):
+                with self.assertLogs("crags.forms", "WARNING") as logs:
+                    with self.assertRaises(ValidationError):
+                        process_image(upload)
+                self.assertIn(f"image rejected: {reason}", logs.output[0])
+                self.assertNoPersonalData(logs, "private-name")

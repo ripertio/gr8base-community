@@ -18,3 +18,29 @@
 - Reads JPEG, PNG, WebP, MPO, and HEIF/HEIC images; **pillow-heif** adds HEIF support.
 - Applies EXIF rotation, converts images to RGB, and resizes them to a maximum 1,600-pixel edge.
 - Re-encodes images as WebP at quality 80 before saving.
+
+## Logging
+Everything is written to stdout, so Docker collects it, and also to files in the `logs/` directory of the project (gitignored, created automatically):
+
+```bash
+docker compose logs -f web          # follow the application
+docker compose logs --since 1h web  # last hour
+docker compose logs web | grep ERROR
+tail -f logs/app.log                # the same, from the files
+```
+
+| File | Content |
+| --- | --- |
+| `logs/app.log` | Application log: errors, warnings and events |
+| `logs/gunicorn-access.log` | One line per request |
+| `logs/gunicorn-error.log` | Gunicorn start, stop and worker messages |
+| `logs/gr8base-backup.log` | Deploy, backup and restore runs (written by the scripts) |
+
+- **Rotation:** each `.log` file in `logs/` is rotated at 10 MB and keeps 3 old copies (`app.log.1` to `app.log.3`). Container logs are limited the same way (`x-logging` in `docker-compose.yml`). `gr8base-backup.log` is written by shell scripts and not rotated; it only grows by a few lines per deploy.
+- **Level:** `DJANGO_LOG_LEVEL` (`DEBUG`, `INFO`, `WARNING` or `ERROR`). Production defaults to `INFO`, development to `DEBUG`. Set it in `.env` and run `docker compose up -d` to apply.
+- **Errors:** unhandled exceptions are logged with a traceback (`django.request`). Django's default would drop them when `DEBUG` is off, so `LOGGING` in `gr8base/settings.py` sends them to the console and to `app.log`.
+- **Requests:** Gunicorn writes one access line per request (configured in `gunicorn.conf.py`). Django logs only 5xx errors, so nothing is duplicated.
+- **Events** (at `INFO`): crag created, updated and deleted; photos uploaded and deleted; user signed up. Rejected uploads are logged as `WARNING` with the reason (`too large`, `format`, `too many pixels`, `unreadable`).
+- **Privacy:** events contain IDs only (`crag created id=12 user=3 status=DRAFT`). No names, e-mail addresses or file names; keep it that way when adding new log calls.
+- **Single worker:** the size-based rotation assumes Gunicorn's single worker process. If `workers` is raised, use a rotation that is safe across processes (for example `logrotate` on the host).
+- **Not covered:** `$BACKUP_DIR/deploy.log` (read by `restore.sh`) stays next to the backups, see [scripts/README.md](../scripts/README.md). There is no alerting; errors are found by reading the logs.

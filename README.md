@@ -65,12 +65,15 @@ Settings are read from environment variables (see `gr8base/settings.py`). For pr
 | `POSTGRES_PASSWORD` | Database password |
 | `RESEND_API_KEY` | Sending e-mail (verification, password reset) |
 | `CLOUDFLARE_TUNNEL_TOKEN` | Tunnel to the Caddy container |
+| `DJANGO_LOG_LEVEL` | Log verbosity: `DEBUG`, `INFO` (production default), `WARNING`, `ERROR` |
 | `DJANGO_DEBUG`, `DJANGO_ALLOWED_HOSTS`, `DJANGO_CSRF_TRUSTED_ORIGINS` | Set by the compose files |
 | `MEDIA_DIR` | Host path for uploaded media (default `./data/media`) |
 
 ## Deployment, backup and restore
 
 `docker-compose.yml` runs web (Gunicorn), Caddy, cloudflared and PostgreSQL. A health check is served at `/healthz/`. Deploy, backup and restore scripts are documented in [scripts/README.md](scripts/README.md).
+
+Application logs go to stdout (`docker compose logs -f web`) and to the gitignored `logs/` directory (`app.log`, Gunicorn access and error logs, `gr8base-backup.log`). What is logged, the log level and rotation are described in [docs/technical-stack.md](docs/technical-stack.md#logging).
 
 ## Project layout
 
@@ -83,6 +86,7 @@ Settings are read from environment variables (see `gr8base/settings.py`). For pr
 | `content/` | Markdown documentation pages |
 | `templates/`, `static/` | Base templates, CSS, JavaScript |
 | `scripts/` | Dev start, backup, restore, deploy |
+| `logs/` | Application, Gunicorn and backup logs (created at runtime, not in git) |
 | `data-dev/` | Sample dump and media for development |
 | `docs/` | Crag data model and technical notes |
 

@@ -1,4 +1,5 @@
 import io
+import logging
 import re
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 
@@ -11,6 +12,8 @@ import pillow_heif
 from .models import Area, Crag, Feature, Photo
 
 pillow_heif.register_heif_opener()
+
+logger = logging.getLogger(__name__)
 
 MAX_UPLOAD_BYTES = 15 * 1024 * 1024   # 15 MB
 MAX_PIXELS = 60_000_000               # protects against decompression bombs
@@ -70,16 +73,19 @@ def parse_coordinates(value):
 def process_image(upload, max_edge=MAX_EDGE):
     """Validate an upload and return it as a resized WEBP ContentFile."""
     if upload.size > MAX_UPLOAD_BYTES:
+        logger.warning("image rejected: too large")
         raise ValidationError("The image is too large (maximum 15 MB).")
 
     try:
         upload.seek(0)
         img = Image.open(upload)
         if img.format not in ALLOWED_FORMATS:
+            logger.warning("image rejected: format %s", img.format)
             raise ValidationError(
                 "Please upload a JPG, PNG, WebP, or HEIC image."
             )
         if img.width * img.height > MAX_PIXELS:
+            logger.warning("image rejected: too many pixels")
             raise ValidationError("The image has too many pixels.")
 
         img = ImageOps.exif_transpose(img)
@@ -88,7 +94,9 @@ def process_image(upload, max_edge=MAX_EDGE):
 
         buffer = io.BytesIO()
         img.save(buffer, format="WEBP", quality=80, method=4)
-    except (UnidentifiedImageError, OSError, Image.DecompressionBombError):
+    except (UnidentifiedImageError, OSError, Image.DecompressionBombError) as exc:
+        # Only the exception type: its message can contain the uploaded file name.
+        logger.warning("image rejected: unreadable (%s)", type(exc).__name__)
         raise ValidationError("The file could not be read as an image.")
 
     return ContentFile(buffer.getvalue(), name="photo.webp")

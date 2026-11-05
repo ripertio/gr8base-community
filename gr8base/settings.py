@@ -197,3 +197,41 @@ STORAGES = {
 # https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
+
+# Logging: everything goes to stdout so `docker compose logs web` shows it, and
+# the application log also goes to logs/app.log (rotated, untracked in git).
+# Unlike Django's default, the console handler is not limited to DEBUG=True,
+# otherwise unhandled exceptions in production would be lost.
+LOG_DIR = BASE_DIR / "logs"
+LOG_DIR.mkdir(exist_ok=True)
+LOG_LEVEL = os.environ.get("DJANGO_LOG_LEVEL", "INFO").upper()
+LOGGING = {
+    "version": 1,
+    "disable_existing_loggers": False,
+    "formatters": {
+        "plain": {"format": "%(asctime)s %(levelname)s %(name)s %(message)s"},
+    },
+    "handlers": {
+        "console": {
+            "class": "logging.StreamHandler",
+            "stream": "ext://sys.stdout",
+            "formatter": "plain",
+        },
+        "file": {
+            "class": "logging.handlers.RotatingFileHandler",
+            # the test runner must not write into the real log file
+            "filename": os.devnull if RUNNING_TESTS else str(LOG_DIR / "app.log"),
+            "maxBytes": 10 * 1024 * 1024,
+            "backupCount": 3,
+            "encoding": "utf-8",
+            "formatter": "plain",
+        },
+    },
+    "root": {"handlers": ["console", "file"], "level": LOG_LEVEL},
+    "loggers": {
+        "django": {"handlers": ["console", "file"], "level": LOG_LEVEL, "propagate": False},
+        # Tracebacks for 5xx only; Gunicorn's access log already records every request (incl. 4xx).
+        "django.request": {"handlers": ["console", "file"], "level": "ERROR", "propagate": False},
+        "django.security": {"handlers": ["console", "file"], "level": "WARNING", "propagate": False},
+    },
+}

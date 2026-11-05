@@ -8,12 +8,12 @@ Find crags – gr8base community
 
 {% block content %}
 
-<section>
+<section class="crag-list-header">
 
     <h1>Find crags</h1>
 
-    <p>
-        Find family-friendly climbing crags for your next outing.
+    <p class="area">
+        Family-friendly climbing crags for your next outing.
     </p>
 
 </section>
@@ -21,106 +21,166 @@ Find crags – gr8base community
 
 <section>
 
-    <form method="get">
+    <form method="get" class="crag-search-form">
 
         <input
-            type="search"
-            name="q"
-            value="{{ query }}"
-            placeholder="Search crags or areas..."
-            aria-label="Search crags or areas"
+            type="hidden"
+            name="f"
+            value="1"
+            id="filters-flag"
+            {% if not filters_open %}disabled{% endif %}
         >
 
+        <div class="crag-search">
 
-        <div class="grid">
+            <div class="crag-search-field">
 
-            <select
-                name="area"
-                aria-label="Area"
-            >
+                <input
+                    type="search"
+                    name="q"
+                    value="{{ query }}"
+                    placeholder="Search crags or areas..."
+                    aria-label="Search crags or areas"
+                >
 
-                <option value="">
-                    All areas
-                </option>
-
-                {% for area in areas %}
-
-                    <option
-                        value="{{ area.name }}"
-                        {% if selected_area == area.name %}
-                            selected
-                        {% endif %}
+                <button
+                    type="submit"
+                    class="crag-search-submit"
+                    aria-label="Search"
+                >
+                    <svg
+                        xmlns="http://www.w3.org/2000/svg"
+                        viewBox="0 0 24 24"
+                        width="20"
+                        height="20"
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="2"
+                        stroke-linecap="round"
+                        aria-hidden="true"
                     >
-                        {{ area.name }}
-                    </option>
+                        <circle cx="11" cy="11" r="7"></circle>
+                        <path d="m20 20-4-4"></path>
+                    </svg>
+                </button>
 
-                {% endfor %}
+            </div>
 
-            </select>
-
-
-            <select
-                name="rating"
-                aria-label="Family rating"
+            <button
+                type="button"
+                id="filters-button"
+                class="filters-button outline secondary{% if filters_open %} is-open{% endif %}"
+                aria-expanded="{% if filters_open %}true{% else %}false{% endif %}"
+                aria-controls="filters-panel"
+                title="Filters"
+                aria-label="Filters{% if active_filters %} ({{ active_filters }} active){% endif %}"
             >
-
-                <option value="">
-                    Family rating
-                </option>
-
-                <option
-                    value="5"
-                    {% if selected_rating == "5" %}selected{% endif %}
+                <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    viewBox="0 0 24 24"
+                    width="20"
+                    height="20"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    aria-hidden="true"
                 >
-                    5 stars
-                </option>
-
-                <option
-                    value="4"
-                    {% if selected_rating == "4" %}selected{% endif %}
-                >
-                    4+ stars
-                </option>
-
-                <option
-                    value="3"
-                    {% if selected_rating == "3" %}selected{% endif %}
-                >
-                    3+ stars
-                </option>
-
-                <option
-                    value="2"
-                    {% if selected_rating == "2" %}selected{% endif %}
-                >
-                    2+ stars
-                </option>
-
-                <option
-                    value="1"
-                    {% if selected_rating == "1" %}selected{% endif %}
-                >
-                    1+ stars
-                </option>
-
-            </select>
+                    <path d="M3 5h18l-7 8v6l-4 2v-8z"></path>
+                </svg>
+                {% if active_filters %}<span class="filter-count" aria-hidden="true">{{ active_filters }}</span>{% endif %}
+            </button>
 
         </div>
 
 
-        <div class="grid">
+        <div class="filters-panel" id="filters-panel"{% if not filters_open %} hidden{% endif %} onchange="this.closest('form').submit()">
 
-            <button type="submit">
-                Search
-            </button>
+            {% if active_filters %}
+                <p class="filters-clear">
+                    <a href="{% url 'crags:list' %}{% if query %}?q={{ query|urlencode }}{% endif %}">
+                        Clear filters
+                    </a>
+                </p>
+            {% endif %}
 
-            <a
-                href="{% url 'crags:list' %}"
-                role="button"
-                class="secondary outline"
-            >
-                Clear filters
-            </a>
+            <div class="filters-grid">
+
+                <label>
+                    Area
+                    <select name="area">
+                        <option value="">All areas</option>
+                        {% for area in areas %}
+                            <option value="{{ area.name }}" {% if selected_area == area.name %}selected{% endif %}>{{ area.name }}</option>
+                        {% endfor %}
+                    </select>
+                </label>
+
+                <label>
+                    Age group
+                    <select name="age">
+                        <option value="">Any age</option>
+                        {% for key, label in age_choices %}
+                            <option value="{{ key }}" {% if selected_age == key %}selected{% endif %}>{{ label }}</option>
+                        {% endfor %}
+                    </select>
+                </label>
+
+                <label>
+                    Family rating
+                    <select name="rating">
+                        <option value="">Any rating</option>
+                        <option value="5" {% if selected_rating == "5" %}selected{% endif %}>5 stars</option>
+                        <option value="4" {% if selected_rating == "4" %}selected{% endif %}>4+ stars</option>
+                        <option value="3" {% if selected_rating == "3" %}selected{% endif %}>3+ stars</option>
+                        <option value="2" {% if selected_rating == "2" %}selected{% endif %}>2+ stars</option>
+                        <option value="1" {% if selected_rating == "1" %}selected{% endif %}>1+ stars</option>
+                    </select>
+                </label>
+
+                <label>
+                    Approach
+                    <select name="max_approach">
+                        <option value="">Any length</option>
+                        {% for minutes in approach_choices %}
+                            <option value="{{ minutes }}" {% if selected_max_approach == minutes|stringformat:"d" %}selected{% endif %}>Up to {{ minutes }} min</option>
+                        {% endfor %}
+                    </select>
+                </label>
+
+                <label>
+                    Aspect
+                    <select name="orientation">
+                        <option value="">Any aspect</option>
+                        {% for value, label in orientation_choices %}
+                            <option value="{{ value }}" {% if selected_orientation == value %}selected{% endif %}>{{ label }}</option>
+                        {% endfor %}
+                    </select>
+                </label>
+
+            </div>
+
+            <div class="filters-checks">
+
+                <label>
+                    <input type="checkbox" name="stroller_approach" value="1" {% if stroller_approach %}checked{% endif %}>
+                    Stroller-friendly approach
+                </label>
+
+                <label>
+                    <input type="checkbox" name="stroller_base" value="1" {% if stroller_base %}checked{% endif %}>
+                    Stroller-friendly base
+                </label>
+
+                {% for hazard in hazards %}
+                    <label>
+                        <input type="checkbox" name="avoid" value="{{ hazard.slug }}" {% if hazard.slug in selected_avoid %}checked{% endif %}>
+                        No {{ hazard.label|lower }}
+                    </label>
+                {% endfor %}
+
+            </div>
 
         </div>
 

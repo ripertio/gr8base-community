@@ -5,6 +5,23 @@
 .crag-card.has-photo>a{display:block}
 .crag-card-body header{margin-top:0}
 @media (max-width:640px){.crag-card.has-photo{grid-template-columns:1fr}}
+.crag-list-header h1{font-size:1.75rem;margin-bottom:.25rem}
+.crag-list-header p{margin-bottom:0}
+.crag-search{display:flex;flex-wrap:wrap;gap:.5rem;align-items:center}
+.crag-search-field{display:flex;gap:.5rem;align-items:center;flex:1 1 16rem;min-width:0}
+.crag-search input[type=search]{flex:1 1 0;min-width:0;margin-bottom:0;padding-inline-start:var(--pico-form-element-spacing-horizontal);background-image:none}
+.crag-search button.crag-search-submit{display:flex;align-items:center;justify-content:center;flex:0 0 auto;width:2.5rem;height:2.5rem;margin:0;padding:0;border-radius:50%}
+.crag-search button.filters-button{position:relative;display:inline-flex;align-items:center;justify-content:center;flex:0 0 auto;width:2.5rem;height:2.5rem;margin:0;padding:0;border-radius:50%;cursor:pointer;user-select:none}
+.crag-search button.filters-button.is-open{background-color:var(--pico-secondary-background);border-color:var(--pico-secondary-background);color:var(--pico-secondary-inverse)}
+.filters-panel{margin-top:1rem}
+.filters-panel[hidden]{display:none}
+.filters-clear{margin-bottom:.75rem;text-align:right}
+.filters-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(11rem,1fr));gap:0 1rem}
+.filters-panel label{margin-bottom:.75rem}
+.filters-panel select{margin-top:.25rem;margin-bottom:0}
+.filters-checks{display:flex;flex-wrap:wrap;gap:0 1.5rem}
+.filters-checks label{margin-bottom:.5rem}
+.filter-count{position:absolute;top:-.35rem;right:-.35rem;display:inline-flex;align-items:center;justify-content:center;min-width:1.2rem;height:1.2rem;padding:0 .3rem;border-radius:1rem;background:var(--pico-primary);color:var(--pico-primary-inverse);font-size:.75rem;line-height:1}
 .crag-meta{display:flex;flex-wrap:wrap;gap:.5rem 1.5rem}
 .area,.hero>p{color:var(--pico-muted-color)}
 .photo-grid{grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:1rem}

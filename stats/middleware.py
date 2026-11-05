@@ -27,7 +27,7 @@ class UniqueVisitorMiddleware:
             request.method != "GET"
             or response.status_code != 200
             or request.path.startswith(SKIPPED_PREFIXES)
-            or request.user.is_staff
+            or request.user.is_superuser
             or request.COOKIES.get(CONSENT_COOKIE) != "yes"
         ):
             return response

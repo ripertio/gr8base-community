@@ -85,6 +85,8 @@ Settings (environment, then `.env`, then default):
 | `BACKUP_REMOTE` | empty | Off-site target: `user@host:/path` (rsync) or `rclone:remote:bucket/path` |
 | `BACKUP_HEARTBEAT_URL` | empty | Ping URL (e.g. healthchecks.io), requested only after a fully successful run |
 
+`env.backup` (a copy of `.env` with the secrets) is never sent off-site, encrypted or not. Keep your `.env` in a password manager or similar, because it is not recoverable from the remote.
+
 Without `BACKUP_REMOTE` the script prints a warning: a backup on the same machine does not survive losing the server.
 
 With `BACKUP_HEARTBEAT_URL` set, a monitoring service can alert you when a backup fails or does not run at all (cron or server down). Create a check with a 1-day period and a grace of a couple of hours. `deploy_production.sh` runs `backup.sh` too, so deploys also send a ping.

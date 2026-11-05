@@ -1,4 +1,5 @@
 # runtime data
+/logs/
 /data/postgres/
 /data/media/
 /data/caddy
@@ -27,5 +28,4 @@ staticfiles/
 
 # Backups and server-specific scripts (data-dev/ itself is tracked on purpose)
 data-dev/gr8base-backups
-gr8base-backup.log
 scripts/deploy_on_server*

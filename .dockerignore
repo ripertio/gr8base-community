@@ -20,6 +20,9 @@ venv/
 .env
 .claude/
 
+# Logs
+logs/
+
 # Database dumps
 *.dump
 

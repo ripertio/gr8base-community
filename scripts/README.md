@@ -97,7 +97,7 @@ Cron example (daily at 03:15):
 15 3 * * * /path/to/gr8base-community/scripts/backup.sh > /dev/null
 ```
 
-Progress output is discarded; errors and warnings (stderr) still reach cron's own mail/syslog. The only log kept is `gr8base-backup.log` (see above).
+Progress output is discarded; errors and warnings (stderr) still reach cron's own mail/syslog. The only log kept is `logs/gr8base-backup.log` (see above).
 
 ### `restore.sh`
 
@@ -128,7 +128,7 @@ For `--with-code` and `--rollback` the script also does `git reset --hard <commi
 Two files get the same lines:
 
 - `$BACKUP_DIR/deploy.log`: next to the backups, outside the repo. This is the one `restore.sh` reads.
-- `gr8base-backup.log` in the project root: a convenience copy. Deleting it does not affect restores. It is untracked in git; add it to `.gitignore` if you want a clean `git status` on the server.
+- `logs/gr8base-backup.log`: a convenience copy, next to the application logs. Deleting it does not affect restores. The `logs/` directory is gitignored. (It used to live directly in the project root; on an existing server, move it with `mkdir -p logs && mv gr8base-backup.log logs/gr8base-backup.log`.)
 
 Line formats:
 

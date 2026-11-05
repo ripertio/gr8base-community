@@ -197,3 +197,29 @@ STORAGES = {
 # https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
+
+# Logging: everything goes to stdout so `docker compose logs web` shows it.
+# Unlike Django's default, the console handler is not limited to DEBUG=True,
+# otherwise unhandled exceptions in production would be lost.
+LOG_LEVEL = os.environ.get("DJANGO_LOG_LEVEL", "INFO").upper()
+LOGGING = {
+    "version": 1,
+    "disable_existing_loggers": False,
+    "formatters": {
+        "plain": {"format": "%(asctime)s %(levelname)s %(name)s %(message)s"},
+    },
+    "handlers": {
+        "console": {
+            "class": "logging.StreamHandler",
+            "stream": "ext://sys.stdout",
+            "formatter": "plain",
+        },
+    },
+    "root": {"handlers": ["console"], "level": LOG_LEVEL},
+    "loggers": {
+        "django": {"handlers": ["console"], "level": LOG_LEVEL, "propagate": False},
+        # Tracebacks for 5xx and warnings for 4xx; one line per request is left to Gunicorn.
+        "django.request": {"handlers": ["console"], "level": "WARNING", "propagate": False},
+        "django.security": {"handlers": ["console"], "level": "WARNING", "propagate": False},
+    },
+}

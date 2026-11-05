@@ -7,6 +7,7 @@ services:
     command: sh -c "python manage.py collectstatic --noinput && gunicorn gr8base.wsgi:application --bind 0.0.0.0:8000"
     environment:
       DJANGO_DEBUG: "False"
+      DJANGO_LOG_LEVEL: ${DJANGO_LOG_LEVEL:-INFO}
       DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY}
       DJANGO_ALLOWED_HOSTS: gr8base.com,www.gr8base.com
       DJANGO_CSRF_TRUSTED_ORIGINS: https://gr8base.com,https://www.gr8base.com

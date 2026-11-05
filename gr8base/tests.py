@@ -2,6 +2,9 @@ import copy
 import io
 import logging
 import logging.config
+import logging.handlers
+import os
+import runpy
 from unittest import mock
 
 from django.conf import settings
@@ -54,3 +57,27 @@ class LoggingConfigTests(TestCase):
         output = stream.getvalue()
         self.assertIn("boom", output)
         self.assertIn("Traceback", output)
+
+    def test_app_log_file_is_rotating_and_lives_in_logs_dir(self):
+        self.assertEqual(settings.LOG_DIR, settings.BASE_DIR / "logs")
+        handler = settings.LOGGING["handlers"]["file"]
+        self.assertEqual(handler["class"], "logging.handlers.RotatingFileHandler")
+        self.assertGreater(handler["maxBytes"], 0)
+        self.assertGreater(handler["backupCount"], 0)
+        self.assertIn("file", settings.LOGGING["root"]["handlers"])
+        self.assertIn("file", settings.LOGGING["loggers"]["django.request"]["handlers"])
+        # the test runner must not write into the real logs/ directory
+        self.assertEqual(handler["filename"], os.devnull)
+
+    def test_gunicorn_writes_rotating_files_into_logs_dir(self):
+        conf = runpy.run_path(str(settings.BASE_DIR / "gunicorn.conf.py"))
+        config = conf["logconfig_dict"]
+        for name in ("gunicorn.access", "gunicorn.error"):
+            self.assertIn("file_" + name.split(".")[1], config["loggers"][name]["handlers"])
+        for key in ("file_access", "file_error"):
+            handler = config["handlers"][key]
+            self.assertEqual(handler["class"], "logging.handlers.RotatingFileHandler")
+            self.assertEqual(os.path.dirname(handler["filename"]), str(settings.LOG_DIR))
+        # the console handlers stay, so `docker compose logs` keeps working
+        self.assertIn("console", config["loggers"]["gunicorn.error"]["handlers"])
+        self.assertIn("access_console", config["loggers"]["gunicorn.access"]["handlers"])

@@ -1,3 +1,11 @@
+# Rotate container logs (Docker's default json-file driver never does):
+# at most 3 files of 10 MB per service.
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
 services:
   web:
     build:
@@ -41,9 +49,11 @@ services:
       retries: 3
       start_period: 40s
     restart: unless-stopped
+    logging: *default-logging
   caddy:
     image: caddy:2
     restart: unless-stopped
+    logging: *default-logging
     configs:
       - source: caddyfile
         target: /etc/caddy/Caddyfile
@@ -70,6 +80,7 @@ services:
   cloudflared:
     image: cloudflare/cloudflared:2026.10.3
     restart: unless-stopped
+    logging: *default-logging
     command: tunnel --no-autoupdate run --token ${CLOUDFLARE_TUNNEL_TOKEN}
     depends_on:
       - caddy
@@ -77,6 +88,7 @@ services:
       - default
   db:
     image: postgres:17
+    logging: *default-logging
 
     environment:
       POSTGRES_DB: familienfelsen

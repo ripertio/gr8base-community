@@ -1,3 +1,5 @@
+import logging
+
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.core.exceptions import ValidationError
@@ -7,6 +9,8 @@ from django.views.decorators.http import require_POST
 
 from .forms import BulkPhotoForm, CragForm, process_image
 from .models import Area, Crag, Feature, Photo
+
+logger = logging.getLogger(__name__)
 
 MAX_PHOTOS_PER_CRAG = 8
 MAX_FILES_PER_UPLOAD = 8
@@ -231,7 +235,15 @@ def crag_create(request):
                         category=photo_form.cleaned_data["category"],
                         uploaded_by=request.user,
                     )
+                logger.info(
+                    "crag created id=%s user=%s status=%s",
+                    crag.pk, request.user.pk, crag.status,
+                )
                 if converted:
+                    logger.info(
+                        "photos uploaded crag=%s user=%s count=%s",
+                        crag.pk, request.user.pk, len(converted),
+                    )
                     messages.success(request, f"Uploaded {len(converted)} photo(s).")
                 return redirect("crags:detail", pk=crag.pk)
     else:
@@ -305,7 +317,15 @@ def crag_edit(request, pk):
                         uploaded_by=request.user,
                     )
                 messages.success(request, "Changes saved.")
+                logger.info(
+                    "crag updated id=%s user=%s status=%s",
+                    crag.pk, request.user.pk, crag.status,
+                )
                 if converted:
+                    logger.info(
+                        "photos uploaded crag=%s user=%s count=%s",
+                        crag.pk, request.user.pk, len(converted),
+                    )
                     messages.success(request, f"Uploaded {len(converted)} photo(s).")
                 return redirect("crags:detail", pk=crag.pk)
     else:
@@ -376,6 +396,10 @@ def photo_add(request, pk):
                         category=form.cleaned_data["category"],
                         uploaded_by=request.user,
                     )
+                logger.info(
+                    "photos uploaded crag=%s user=%s count=%s",
+                    crag.pk, request.user.pk, len(converted),
+                )
                 messages.success(request, f"Uploaded {len(converted)} photo(s).")
                 return redirect("crags:detail", pk=crag.pk)
     else:
@@ -395,7 +419,9 @@ def crag_delete(request, pk):
     for photo in crag.photos.all():
         photo.image.delete(save=False)  # also remove the file from disk
     name = crag.name
+    crag_pk = crag.pk
     crag.delete()
+    logger.info("crag deleted id=%s user=%s", crag_pk, request.user.pk)
     messages.success(request, f"Crag \u201c{name}\u201d deleted.")
     return redirect("crags:mine")
 
@@ -406,8 +432,12 @@ def photo_delete(request, pk):
     photos = Photo.objects.filter(crag__in=editable_crags(request.user))
     photo = get_object_or_404(photos, pk=pk)
     crag_pk = photo.crag_id
+    photo_pk = photo.pk
     photo.image.delete(save=False)  # also remove the file from disk
     photo.delete()
+    logger.info(
+        "photo deleted id=%s crag=%s user=%s", photo_pk, crag_pk, request.user.pk
+    )
     messages.success(request, "Photo deleted.")
     if request.POST.get("next") == "edit":
         return redirect("crags:edit", pk=crag_pk)

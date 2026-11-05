@@ -107,3 +107,23 @@ class ProfileTests(TestCase):
             self.assertEqual(response.status_code, 200)
             self.alice.refresh_from_db()
             self.assertFalse(self.alice.avatar)
+
+
+class SignupLoggingTests(TestCase):
+    def test_signup_logs_user_id_only(self):
+        with self.assertLogs("accounts.signals", "INFO") as logs:
+            self.client.post(
+                reverse("account_signup"),
+                {
+                    "email": "newbie@example.com",
+                    "username": "newbie",
+                    "password1": "pw-Newbie-12345!",
+                    "password2": "pw-Newbie-12345!",
+                },
+                secure=True,
+            )
+        user = User.objects.get(username="newbie")
+        self.assertIn(f"user signed up id={user.pk}", logs.output[0])
+        output = "\n".join(logs.output)
+        self.assertNotIn("newbie", output)
+        self.assertNotIn("example.com", output)

@@ -33,7 +33,7 @@ class LoggingConfigTests(TestCase):
         self.assertIn("console", settings.LOGGING["root"]["handlers"])
         self.assertIn("console", settings.LOGGING["loggers"]["django"]["handlers"])
         django_request = settings.LOGGING["loggers"]["django.request"]
-        self.assertGreaterEqual(logging.getLevelName(django_request["level"]), logging.WARNING)
+        self.assertGreaterEqual(logging.getLevelName(django_request["level"]), logging.ERROR)
 
     def test_log_level_is_valid(self):
         level = settings.LOGGING["root"]["level"]

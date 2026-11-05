@@ -218,8 +218,8 @@ LOGGING = {
     "root": {"handlers": ["console"], "level": LOG_LEVEL},
     "loggers": {
         "django": {"handlers": ["console"], "level": LOG_LEVEL, "propagate": False},
-        # Tracebacks for 5xx and warnings for 4xx; one line per request is left to Gunicorn.
-        "django.request": {"handlers": ["console"], "level": "WARNING", "propagate": False},
+        # Tracebacks for 5xx only; Gunicorn's access log already records every request (incl. 4xx).
+        "django.request": {"handlers": ["console"], "level": "ERROR", "propagate": False},
         "django.security": {"handlers": ["console"], "level": "WARNING", "propagate": False},
     },
 }

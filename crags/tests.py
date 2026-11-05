@@ -706,7 +706,7 @@ class EventLoggingTests(CragTestBase):
             )
         crag = Crag.objects.get(name="Secret Name")
         self.assertIn(
-            f"crag created id={crag.pk} user={self.bob.pk} status=draft", logs.output[0]
+            f"crag created id={crag.pk} user={self.bob.pk} status={Crag.Status.DRAFT.value}", logs.output[0]
         )
         self.assertNoPersonalData(logs, "Secret Name", "bob", "example.com")
 
@@ -753,7 +753,7 @@ class EventLoggingTests(CragTestBase):
                 form_data(self.area, name="Renamed"),
             )
         self.assertIn(
-            f"crag updated id={self.draft.pk} user={self.alice.pk} status=draft",
+            f"crag updated id={self.draft.pk} user={self.alice.pk} status={Crag.Status.DRAFT.value}",
             logs.output[0],
         )
         self.assertNoPersonalData(logs, "Renamed", "Draft entry")

@@ -6,7 +6,7 @@ from django.shortcuts import get_object_or_404, redirect, render
 from django.views.decorators.http import require_POST
 
 from .forms import BulkPhotoForm, CragForm, process_image
-from .models import Area, Crag, Photo
+from .models import Area, Crag, Feature, Photo
 
 MAX_PHOTOS_PER_CRAG = 8
 MAX_FILES_PER_UPLOAD = 8
@@ -28,16 +28,41 @@ def editable_crags(user):
     return Crag.objects.filter(created_by=user)
 
 
+AGE_FIELDS = {
+    "babies": ("Babies", "rating_babies"),
+    "ages_2_4": ("Ages 2–4", "rating_ages_2_4"),
+    "ages_5_plus": ("Ages 5+", "rating_ages_5_plus"),
+}
+APPROACH_CHOICES = (5, 10, 15, 20, 30)
+STROLLER_SLUG = "stroller_friendly"
+
+
 def crag_list(request):
     crags = Crag.objects.select_related("area").public()
-    query = request.GET.get("q", "").strip()
-    area_name = request.GET.get("area", "")
-    min_rating = request.GET.get("rating", "")
+    get = request.GET
+    query = get.get("q", "").strip()
+    area_name = get.get("area", "")
+    min_rating = get.get("rating", "")
+    age = get.get("age", "")
+    orientation = get.get("orientation", "")
+    max_approach = get.get("max_approach", "")
+    stroller_approach = get.get("stroller_approach") == "1"
+    stroller_base = get.get("stroller_base") == "1"
+
+    hazards = Feature.objects.exclude(slug=STROLLER_SLUG).order_by("label")
+    hazard_slugs = {h.slug for h in hazards}
+    avoid = [slug for slug in get.getlist("avoid") if slug in hazard_slugs]
 
     if area_name and not Area.objects.filter(name=area_name).exists():
         area_name = ""
-    if not min_rating.isdecimal():
+    if not (min_rating.isdecimal() and 1 <= int(min_rating) <= 5):
         min_rating = ""
+    if age not in AGE_FIELDS:
+        age = ""
+    if orientation not in Crag.Orientation.values:
+        orientation = ""
+    if not (max_approach.isdecimal() and int(max_approach) in APPROACH_CHOICES):
+        max_approach = ""
 
     if query:
         crags = crags.filter(
@@ -49,18 +74,53 @@ def crag_list(request):
     if area_name:
         crags = crags.filter(area__name=area_name)
 
-    if min_rating:
+    if age:
+        field = AGE_FIELDS[age][1]
+        if min_rating:
+            crags = crags.filter(**{f"{field}__gte": min_rating})
+        else:
+            crags = crags.filter(**{f"{field}__isnull": False})
+    elif min_rating:
         crags = crags.filter(
             Q(rating_babies__gte=min_rating)
             | Q(rating_ages_2_4__gte=min_rating)
             | Q(rating_ages_5_plus__gte=min_rating)
         )
 
-    crags = crags.order_by("name")
+    if orientation:
+        crags = crags.filter(orientation=orientation)
+
+    if max_approach:
+        crags = crags.filter(approach_minutes__lte=max_approach)
+
+    if stroller_approach:
+        crags = crags.filter(approach_features__slug=STROLLER_SLUG)
+
+    if stroller_base:
+        crags = crags.filter(base_features__slug=STROLLER_SLUG)
+
+    # Known hazards only: crags without any assessment are not excluded.
+    for slug in avoid:
+        crags = crags.exclude(
+            Q(approach_features__slug=slug) | Q(base_features__slug=slug)
+        )
+
+    crags = crags.distinct().order_by("name")
     areas = (
         Area.objects.filter(crags__status__in=Crag.PUBLIC_STATUSES)
         .distinct()
         .order_by("name")
+    )
+
+    active_filters = (
+        bool(area_name)
+        + bool(min_rating)
+        + bool(age)
+        + bool(orientation)
+        + bool(max_approach)
+        + stroller_approach
+        + stroller_base
+        + len(avoid)
     )
 
     context = {
@@ -69,6 +129,18 @@ def crag_list(request):
         "query": query,
         "selected_area": area_name,
         "selected_rating": min_rating,
+        "selected_age": age,
+        "selected_orientation": orientation,
+        "selected_max_approach": max_approach,
+        "stroller_approach": stroller_approach,
+        "stroller_base": stroller_base,
+        "selected_avoid": avoid,
+        "age_choices": [(key, label) for key, (label, _) in AGE_FIELDS.items()],
+        "orientation_choices": Crag.Orientation.choices,
+        "approach_choices": APPROACH_CHOICES,
+        "hazards": hazards,
+        "active_filters": active_filters,
+        "filters_open": bool(active_filters) or "f" in get,
     }
     return render(request, "crags/crag_list.html", context)
 

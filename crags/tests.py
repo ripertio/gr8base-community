@@ -128,6 +128,44 @@ class PublicVisibilityTests(CragTestBase):
         self.assertEqual(resp.context["selected_area"], self.area.name)
         self.assertContains(resp, f'value="{self.area.name}"')
 
+    def test_list_filters_by_age_orientation_and_approach(self):
+        self.published.rating_babies = 5
+        self.published.orientation = "S"
+        self.published.approach_minutes = 10
+        self.published.save()
+        url = reverse("crags:list")
+
+        resp = self.client.get(url, {"age": "babies", "rating": "4"})
+        self.assertContains(resp, "Public")
+        self.assertNotContains(resp, "Waiting")
+
+        resp = self.client.get(url, {"orientation": "S"})
+        self.assertContains(resp, "Public")
+        self.assertNotContains(resp, "Waiting")
+
+        resp = self.client.get(url, {"max_approach": "10"})
+        self.assertContains(resp, "Public")
+        self.assertNotContains(resp, "Waiting")
+
+        resp = self.client.get(url, {"max_approach": "5"})
+        self.assertNotContains(resp, "Public")
+
+    def test_list_filters_by_features(self):
+        stroller = Feature.objects.get(slug="stroller_friendly")
+        rockfall = Feature.objects.get(slug="rockfall")
+        self.published.approach_features.add(stroller)
+        self.pending.approach_features.add(rockfall)
+        url = reverse("crags:list")
+
+        resp = self.client.get(url, {"stroller_approach": "1"})
+        self.assertContains(resp, "Public")
+        self.assertNotContains(resp, "Waiting")
+
+        resp = self.client.get(url, {"avoid": "rockfall"})
+        self.assertContains(resp, "Public")
+        self.assertNotContains(resp, "Waiting")
+        self.assertEqual(resp.context["active_filters"], 1)
+
     def test_anonymous_can_open_published_detail(self):
         resp = self.client.get(reverse("crags:detail", args=[self.published.pk]))
         self.assertEqual(resp.status_code, 200)

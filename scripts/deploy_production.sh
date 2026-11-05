@@ -7,7 +7,7 @@
 #   ./scripts/deploy_on_server_with_ssh.sh
 #
 # Every deploy appends one line to $BACKUP_DIR/deploy.log (next to the backups)
-# and to gr8base-backup.log in the project root:
+# and to logs/gr8base-backup.log in the project root:
 #   <time> ok|FAILED(<code>) prev=<commit before> new=<commit after> backup=<dir>
 # The backup is taken just before migrate, so it matches the prev commit.
 # ./scripts/restore.sh --rollback uses that line to go back to a working state.
@@ -37,8 +37,9 @@ main() {
         local line
         line="$(date +%FT%T%z) $result prev=$PREV new=$(git rev-parse HEAD) backup=$BACKUP"
         echo "$line" >> "$LOG"
-        echo "$line" >> gr8base-backup.log   # relative to the project root
-        echo "==> Logged to $LOG and $PWD/gr8base-backup.log"
+        mkdir -p logs   # relative to the project root
+        echo "$line" >> logs/gr8base-backup.log
+        echo "==> Logged to $LOG and $PWD/logs/gr8base-backup.log"
         echo "    $line"
     }
     trap log_deploy EXIT

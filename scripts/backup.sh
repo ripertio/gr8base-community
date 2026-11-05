@@ -19,7 +19,7 @@
 #   15 3 * * * /path/to/gr8base-community/scripts/backup.sh > /dev/null
 #
 # Log      appends "<time> backup commit=<HEAD> backup=<dir>" to $BACKUP_DIR/deploy.log
-#          and ./gr8base-backup.log (same files deploy_production.sh writes to).
+#          and ./logs/gr8base-backup.log (same files deploy_production.sh writes to).
 #          Entries whose backup directory has been pruned are removed again.
 #
 # Restore:
@@ -76,7 +76,8 @@ if [[ -z "${BACKUP_SKIP_LOG:-}" ]]; then
     commit="$(git rev-parse HEAD 2>/dev/null || echo unknown)"
     entry="$(date +%FT%T%z) backup commit=$commit backup=$DEST"
     echo "$entry" >> "$BACKUP_DIR/deploy.log"
-    echo "$entry" >> gr8base-backup.log   # relative to the project root
+    mkdir -p logs   # relative to the project root
+    echo "$entry" >> logs/gr8base-backup.log
 fi
 
 echo "==> Removing local backups (and pre-restore copies) older than $KEEP_DAYS days"
@@ -99,7 +100,7 @@ prune_log() {   # prune_log FILE
 }
 echo "==> Removing log entries for backups that no longer exist"
 prune_log "$BACKUP_DIR/deploy.log"
-prune_log gr8base-backup.log
+prune_log logs/gr8base-backup.log
 
 if [[ -n "$BACKUP_REMOTE" ]]; then
     echo "==> Copying off-site to $BACKUP_REMOTE"

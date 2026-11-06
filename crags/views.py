@@ -165,7 +165,7 @@ def crag_list(request):
 def crag_detail(request, pk):
     crag = get_object_or_404(
         visible_crags(request.user).select_related("created_by").prefetch_related(
-            "photos", "approach_features", "base_features"
+            "photos", "approach_features", "base_features", "guidebooks"
         ),
         pk=pk,
     )
@@ -257,7 +257,7 @@ def crag_mine(request):
 @login_required
 def crag_create(request):
     if request.method == "POST":
-        form = CragForm(request.POST)
+        form = CragForm(request.POST, request.FILES)
         photo_form = BulkPhotoForm(request.POST)
         uploads = request.FILES.getlist("images")
 
@@ -333,7 +333,7 @@ def crag_edit(request, pk):
     existing = crag.photos.count()
 
     if request.method == "POST":
-        form = CragForm(request.POST, instance=crag)
+        form = CragForm(request.POST, request.FILES, instance=crag)
         photo_form = BulkPhotoForm(request.POST)
         uploads = request.FILES.getlist("images")
 

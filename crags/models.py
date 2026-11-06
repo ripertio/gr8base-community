@@ -24,6 +24,29 @@ class Feature(models.Model):
         return self.label
 
 
+def guidebook_upload_path(instance, filename):
+    # Random name: the user's filename is never used
+    return f"guidebooks/{uuid.uuid4().hex}.webp"
+
+
+class Guidebook(models.Model):
+    name = models.CharField(max_length=250)
+    url = models.URLField(blank=True)
+    publish_year = models.PositiveSmallIntegerField(
+        null=True,
+        blank=True,
+        validators=[MinValueValidator(1800), MaxValueValidator(2100)],
+    )
+    publisher = models.CharField(max_length=200, blank=True)
+    picture = models.ImageField(upload_to=guidebook_upload_path, blank=True)
+
+    class Meta:
+        ordering = ["name"]
+
+    def __str__(self):
+        return self.name
+
+
 class CragQuerySet(models.QuerySet):
     def published(self):
         return self.filter(status=Crag.Status.PUBLISHED)
@@ -109,7 +132,11 @@ class Crag(models.Model):
 
     base_assessed = models.BooleanField(default=False)
 
-    guidebook = models.CharField(max_length=250, blank=True)
+    guidebooks = models.ManyToManyField(
+        Guidebook,
+        blank=True,
+        related_name="crags",
+    )
 
     latitude = models.DecimalField(
         max_digits=9,

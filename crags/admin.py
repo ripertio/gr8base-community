@@ -1,6 +1,9 @@
+from django import forms
 from django.contrib import admin
+from django.core.files.uploadedfile import UploadedFile
 
-from .models import Area, Crag, CragRating, Feature, Photo
+from .forms import process_image
+from .models import Area, Crag, CragRating, Feature, Guidebook, Photo
 
 
 @admin.register(Area)
@@ -16,8 +19,30 @@ class FeatureAdmin(admin.ModelAdmin):
 
 
 
+class GuidebookAdminForm(forms.ModelForm):
+    class Meta:
+        model = Guidebook
+        fields = "__all__"
+
+    def clean_picture(self):
+        picture = self.cleaned_data.get("picture")
+        # Only new uploads are processed; an unchanged or cleared value passes through.
+        if isinstance(picture, UploadedFile):
+            return process_image(picture, max_edge=800)
+        return picture
+
+
+@admin.register(Guidebook)
+class GuidebookAdmin(admin.ModelAdmin):
+    form = GuidebookAdminForm
+    list_display = ("name", "publisher", "publish_year")
+    list_filter = ("publish_year",)
+    search_fields = ("name", "publisher")
+
+
 @admin.register(Crag)
 class CragAdmin(admin.ModelAdmin):
+    filter_horizontal = ("guidebooks",)
     list_display = ("name", "area", "status", "created_by", "updated_at")
     list_filter = ("status", "area")
     search_fields = ("name",)

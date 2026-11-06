@@ -9,7 +9,7 @@ from django.core.files.base import ContentFile
 from PIL import Image, ImageOps, UnidentifiedImageError
 import pillow_heif
 
-from .models import Area, Crag, Feature, Photo
+from .models import Area, Crag, Feature, Guidebook, Photo
 
 pillow_heif.register_heif_opener()
 
@@ -111,9 +111,6 @@ class BulkPhotoForm(forms.Form):
 
 
 class CragForm(forms.ModelForm):
-    guidebook = forms.CharField(
-        max_length=250, required=False, label="Guidebook"
-    )
     location = forms.CharField(
         required=False,
         label="Crag coordinates",
@@ -166,12 +163,41 @@ class CragForm(forms.ModelForm):
         label="Or add a new area",
         help_text="Only fill this in if the area is not listed above.",
     )
+    guidebooks = forms.ModelMultipleChoiceField(
+        queryset=Guidebook.objects.all(),
+        required=False,
+        label="Guidebooks",
+        help_text="Search and pick guidebooks that describe this crag, or add a new one.",
+    )
+    new_guidebook = forms.CharField(
+        max_length=250,
+        required=False,
+        label="Name",
+    )
+    new_guidebook_url = forms.URLField(
+        required=False, label="Link (optional)"
+    )
+    new_guidebook_publisher = forms.CharField(
+        max_length=200, required=False, label="Publisher (optional)"
+    )
+    new_guidebook_year = forms.IntegerField(
+        min_value=1800, max_value=2100, required=False,
+        label="Publication year (optional)",
+    )
+    new_guidebook_picture = forms.ImageField(
+        required=False, label="Cover picture (optional)"
+    )
 
     field_order = [
         "name",
         "area",
         "new_area",
-        "guidebook",
+        "guidebooks",
+        "new_guidebook",
+        "new_guidebook_url",
+        "new_guidebook_publisher",
+        "new_guidebook_year",
+        "new_guidebook_picture",
         "description",
         "approach_minutes",
         "approach_assessed",
@@ -192,7 +218,7 @@ class CragForm(forms.ModelForm):
         fields = [
             "name",
             "area",
-            "guidebook",
+            "guidebooks",
             "description",
             "approach_minutes",
             "approach_assessed",
@@ -210,6 +236,8 @@ class CragForm(forms.ModelForm):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self._new_area_name = ""
+        self._new_guidebook_name = ""
+        self._new_guidebook_picture = None
         self._coordinates = (None, None)
         if self.instance and self.instance.pk:
             latitude, longitude = self.instance.latitude, self.instance.longitude
@@ -250,11 +278,63 @@ class CragForm(forms.ModelForm):
                 "area",
                 "Select an area or enter a new one.",
             )
+
+        self._new_guidebook_name = " ".join(
+            (cleaned.get("new_guidebook") or "").split()
+        )
+        details = (
+            "new_guidebook_url",
+            "new_guidebook_publisher",
+            "new_guidebook_year",
+            "new_guidebook_picture",
+        )
+        if not self._new_guidebook_name and any(cleaned.get(f) for f in details):
+            self.add_error("new_guidebook", "Enter the name of the new guidebook.")
+        elif self._new_guidebook_name and cleaned.get("new_guidebook_picture"):
+            try:
+                self._new_guidebook_picture = process_image(
+                    cleaned["new_guidebook_picture"], max_edge=800
+                )
+            except ValidationError as exc:
+                self.add_error("new_guidebook_picture", exc)
         return cleaned
+
+    def _create_new_guidebook(self):
+        """Return the guidebook named in the "add new" block, creating it if needed."""
+        if not self._new_guidebook_name:
+            return None
+        guidebook = Guidebook.objects.filter(
+            name__iexact=self._new_guidebook_name
+        ).first()
+        if guidebook is None:
+            guidebook = Guidebook(
+                name=self._new_guidebook_name,
+                url=self.cleaned_data.get("new_guidebook_url") or "",
+                publisher=self.cleaned_data.get("new_guidebook_publisher") or "",
+                publish_year=self.cleaned_data.get("new_guidebook_year"),
+            )
+            if self._new_guidebook_picture:
+                guidebook.picture.save(
+                    "cover.webp", self._new_guidebook_picture, save=False
+                )
+            guidebook.save()
+        return guidebook
 
     def save(self, commit=True):
         crag = super().save(commit=False)
         crag.latitude, crag.longitude = self._coordinates
+
+        # The view calls save(commit=False) and save_m2m() itself, once the
+        # crag exists, so the new guidebook must be linked from there.
+        save_selected = self.save_m2m
+
+        def save_m2m():
+            save_selected()
+            guidebook = self._create_new_guidebook()
+            if guidebook is not None:
+                crag.guidebooks.add(guidebook)
+
+        self.save_m2m = save_m2m
 
         if self._new_area_name:
             area = Area.objects.filter(name__iexact=self._new_area_name).first()
@@ -264,4 +344,5 @@ class CragForm(forms.ModelForm):
 
         if commit:
             crag.save()
+            self.save_m2m()
         return crag

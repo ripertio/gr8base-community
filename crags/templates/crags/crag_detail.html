@@ -233,10 +233,36 @@
 </section>
 
 
-{% if crag.guidebook or crag.parking or crag.latitude != None or crag.longitude != None %}
+{% if crag.guidebooks.all %}
+<section>
+    <h2>Guidebooks</h2>
+    <ul class="guidebook-list">
+        {% for guidebook in crag.guidebooks.all %}
+            <li>
+                {% if guidebook.picture %}
+                    <img src="{{ guidebook.picture.url }}" alt="Cover of {{ guidebook.name }}" loading="lazy">
+                {% endif %}
+                <div>
+                    <strong>
+                        {% if guidebook.url %}
+                            <a href="{{ guidebook.url }}" target="_blank" rel="noopener noreferrer">{{ guidebook.name }}</a>
+                        {% else %}
+                            {{ guidebook.name }}
+                        {% endif %}
+                    </strong>
+                    {% if guidebook.publisher or guidebook.publish_year %}
+                        <br><small>{{ guidebook.publisher }}{% if guidebook.publisher and guidebook.publish_year %}, {% endif %}{{ guidebook.publish_year|default_if_none:""|unlocalize }}</small>
+                    {% endif %}
+                </div>
+            </li>
+        {% endfor %}
+    </ul>
+</section>
+{% endif %}
+
+{% if crag.parking or crag.latitude != None or crag.longitude != None %}
 <section>
     <h2>Location and access</h2>
-    {% if crag.guidebook %}<p><strong>Guidebook:</strong> {{ crag.guidebook }}</p>{% endif %}
     {% if crag.parking %}<p><strong>Parking:</strong> {{ crag.parking|linebreaksbr }}</p>{% endif %}
     {% if crag.latitude != None and crag.longitude != None %}
         <p>

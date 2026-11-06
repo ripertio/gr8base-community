@@ -8,10 +8,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
 
-    dependencies = [
-        ('crags', '0010_create_crag_managers_group'),
-        migrations.swappable_dependency(settings.AUTH_USER_MODEL),
-    ]
+    dependencies = [("crags", "0014_crag_managers_guidebook_permissions")]
 
     operations = [
         migrations.CreateModel(

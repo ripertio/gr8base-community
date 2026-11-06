@@ -53,7 +53,7 @@ echo "==> Restoring $DUMP"
 echo "==> Applying migrations newer than the dump"
 "${COMPOSE[@]}" run --rm --no-deps web python manage.py migrate --noinput
 
-echo "==> Creating dev-root and assigning ownerless crags and photos"
+echo "==> Creating dev users (dev-root, author, dummy1, dummy2) and assigning crags and photos"
 "${COMPOSE[@]}" run --rm --no-deps web python manage.py seed_dev_users
 
 echo "==> Checking photo files"
@@ -70,4 +70,5 @@ echo "==> Starting web"
 "${COMPOSE[@]}" up -d web
 
 echo
-echo "Done: http://localhost:8010  (log in as dev-root / dev-root)"
+echo "Done: http://localhost:8010  (log in as dev-root / dev-root;
+      author, dummy1, dummy2 use their username as password; "Grauer Stein" belongs to author)"

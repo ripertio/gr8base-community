@@ -3,12 +3,12 @@ import logging
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.core.exceptions import ValidationError
-from django.db.models import Q
+from django.db.models import Avg, Count, Q
 from django.shortcuts import get_object_or_404, redirect, render
 from django.views.decorators.http import require_POST
 
 from .forms import BulkPhotoForm, CragForm, process_image
-from .models import Area, Crag, Feature, Photo
+from .models import Area, Crag, CragRating, Feature, Photo
 
 logger = logging.getLogger(__name__)
 
@@ -109,7 +109,20 @@ def crag_list(request):
             Q(approach_features__slug=slug) | Q(base_features__slug=slug)
         )
 
-    crags = crags.distinct().order_by("name")
+    crags = list(crags.distinct().order_by("name"))
+    # Community averages in one query; set on the crags so the template stays simple
+    averages = {
+        row["crag_id"]: row
+        for row in CragRating.objects.filter(crag__in=crags)
+        .values("crag_id")
+        .annotate(
+            babies=Avg("rating_babies"),
+            ages_2_4=Avg("rating_ages_2_4"),
+            ages_5_plus=Avg("rating_ages_5_plus"),
+        )
+    }
+    for crag in crags:
+        crag.community = averages.get(crag.pk, {})
     areas = (
         Area.objects.filter(crags__status__in=Crag.PUBLIC_STATUSES)
         .distinct()
@@ -161,12 +174,32 @@ def crag_detail(request, pk):
     can_edit = request.user.is_authenticated and (
         request.user.is_staff or crag.created_by_id == request.user.id
     )
+    community = crag.ratings.aggregate(
+        babies=Avg("rating_babies"),
+        babies_n=Count("rating_babies"),
+        ages_2_4=Avg("rating_ages_2_4"),
+        ages_2_4_n=Count("rating_ages_2_4"),
+        ages_5_plus=Avg("rating_ages_5_plus"),
+        ages_5_plus_n=Count("rating_ages_5_plus"),
+    )
+    can_rate = (
+        request.user.is_authenticated
+        and crag.status == Crag.Status.PUBLISHED
+        and crag.created_by_id != request.user.id
+    )
+    my_rating = (
+        crag.ratings.filter(user=request.user).first() if can_rate else None
+    )
     return render(
         request,
         "crags/crag_detail.html",
         {
             "crag": crag,
             "can_edit": can_edit,
+            "community": community,
+            "can_rate": can_rate,
+            "my_rating": my_rating,
+            "scores": range(1, 6),
             "approach_features": approach_features,
             "approach_stroller_friendly": any(
                 feature.slug == "stroller_friendly"
@@ -179,6 +212,36 @@ def crag_detail(request, pk):
             ),
         },
     )
+
+
+@login_required
+@require_POST
+def crag_rate(request, pk):
+    crag = get_object_or_404(Crag.objects.published(), pk=pk)
+    if crag.created_by_id == request.user.id:
+        messages.error(request, "You cannot rate your own crag.")
+        return redirect("crags:detail", pk=pk)
+
+    values = {}
+    for field in ("rating_babies", "rating_ages_2_4", "rating_ages_5_plus"):
+        raw = request.POST.get(field, "")
+        if raw == "":
+            values[field] = None
+        elif raw in ("1", "2", "3", "4", "5"):
+            values[field] = int(raw)
+        else:
+            messages.error(request, "Invalid rating.")
+            return redirect("crags:detail", pk=pk)
+
+    if all(v is None for v in values.values()):
+        CragRating.objects.filter(crag=crag, user=request.user).delete()
+        messages.success(request, "Your rating was removed.")
+    else:
+        CragRating.objects.update_or_create(
+            crag=crag, user=request.user, defaults=values
+        )
+        messages.success(request, "Thanks for rating!")
+    return redirect("crags:detail", pk=pk)
 
 
 @login_required

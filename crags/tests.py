@@ -13,7 +13,7 @@ from django.urls import reverse
 from PIL import Image
 
 from .forms import MAX_EDGE, MAX_UPLOAD_BYTES, process_image
-from .models import Area, Crag, CragComment, CragRating, Feature, Guidebook, Photo
+from .models import Area, Crag, InvalidTransition, CragComment, CragRating, Feature, Guidebook, Photo
 
 
 User = get_user_model()
@@ -1078,3 +1078,89 @@ class CragCommentTests(CragTestBase):
         CragComment.objects.create(crag=self.published, user=self.staff, text="Two")
         response = self.client.get(reverse("crags:list"))
         self.assertContains(response, "💬 2")
+
+
+class StaffReviewTests(CragTestBase):
+    def test_submit_sets_pending_and_submitted_at(self):
+        self.client.force_login(self.alice)
+        response = self.client.post(
+            reverse("crags:edit", args=[self.draft.pk]),
+            form_data(self.area, name="Draft entry", action="submit"),
+        )
+        self.assertEqual(response.status_code, 302)
+        self.draft.refresh_from_db()
+        self.assertEqual(self.draft.status, Crag.Status.PENDING)
+        self.assertIsNotNone(self.draft.submitted_at)
+        response = self.client.get(reverse("crags:detail", args=[self.draft.pk]))
+        self.assertContains(response, "Pending review")
+
+    def test_publish_sets_audit_fields(self):
+        self.pending.transition(Crag.Status.PUBLISHED, self.staff)
+        self.pending.refresh_from_db()
+        self.assertEqual(self.pending.status, Crag.Status.PUBLISHED)
+        self.assertEqual(self.pending.reviewed_by, self.staff)
+        self.assertIsNotNone(self.pending.reviewed_at)
+
+    def test_return_requires_reason(self):
+        with self.assertRaises(ValidationError):
+            self.pending.transition(Crag.Status.NEEDS_CHANGES, self.staff, "short")
+        self.pending.refresh_from_db()
+        self.assertEqual(self.pending.status, Crag.Status.PENDING)
+
+    def test_invalid_transition_changes_nothing(self):
+        with self.assertRaises(InvalidTransition):
+            self.published.transition(Crag.Status.DRAFT, self.staff)
+        self.published.refresh_from_db()
+        self.assertEqual(self.published.status, Crag.Status.PUBLISHED)
+
+    def test_returned_crag_visibility_and_resubmit(self):
+        self.pending.transition(
+            Crag.Status.NEEDS_CHANGES, self.staff, "Please add a parking location."
+        )
+        url = reverse("crags:detail", args=[self.pending.pk])
+        self.assertEqual(self.client.get(url).status_code, 404)
+        self.client.force_login(self.bob)
+        self.assertEqual(self.client.get(url).status_code, 404)
+        self.client.force_login(self.alice)
+        self.assertContains(self.client.get(url), "Please add a parking location.")
+        self.assertContains(
+            self.client.get(reverse("crags:mine")), "Please add a parking location."
+        )
+        self.client.post(
+            reverse("crags:edit", args=[self.pending.pk]),
+            form_data(self.area, name="Waiting", action="submit"),
+        )
+        self.pending.refresh_from_db()
+        self.assertEqual(self.pending.status, Crag.Status.PENDING)
+        self.assertEqual(self.pending.review_reason, "")
+
+    def _admin_post(self, user, action, crags, **extra):
+        self.client.force_login(user)
+        data = {
+            "action": action,
+            "_selected_action": [c.pk for c in crags],
+            **extra,
+        }
+        return self.client.post(reverse("admin:crags_crag_changelist"), data)
+
+    def test_admin_return_action_needs_reason(self):
+        admin_user = User.objects.create_superuser("root", "r@example.com", "pw-root-123")
+        response = self._admin_post(admin_user, "return_to_submitter", [self.pending], apply="1", reason="no")
+        self.assertEqual(response.status_code, 200)
+        self.pending.refresh_from_db()
+        self.assertEqual(self.pending.status, Crag.Status.PENDING)
+        self._admin_post(
+            admin_user, "return_to_submitter", [self.pending],
+            apply="1", reason="Please add photos of the base.",
+        )
+        self.pending.refresh_from_db()
+        self.assertEqual(self.pending.status, Crag.Status.NEEDS_CHANGES)
+
+    def test_staff_without_permission_gets_no_actions(self):
+        self.staff.user_permissions.add(
+            *__import__("django.contrib.auth.models", fromlist=["Permission"])
+            .Permission.objects.filter(codename__in=["view_crag", "change_crag"])
+        )
+        self.client.force_login(self.staff)
+        response = self.client.get(reverse("admin:crags_crag_changelist"))
+        self.assertNotContains(response, "Publish selected crags")

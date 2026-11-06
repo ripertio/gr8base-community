@@ -109,7 +109,20 @@ def crag_list(request):
             Q(approach_features__slug=slug) | Q(base_features__slug=slug)
         )
 
-    crags = crags.distinct().order_by("name")
+    crags = list(crags.distinct().order_by("name"))
+    # Community averages in one query; set on the crags so the template stays simple
+    averages = {
+        row["crag_id"]: row
+        for row in CragRating.objects.filter(crag__in=crags)
+        .values("crag_id")
+        .annotate(
+            babies=Avg("rating_babies"),
+            ages_2_4=Avg("rating_ages_2_4"),
+            ages_5_plus=Avg("rating_ages_5_plus"),
+        )
+    }
+    for crag in crags:
+        crag.community = averages.get(crag.pk, {})
     areas = (
         Area.objects.filter(crags__status__in=Crag.PUBLIC_STATUSES)
         .distinct()

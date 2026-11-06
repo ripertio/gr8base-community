@@ -844,3 +844,11 @@ class CommunityRatingTests(CragTestBase):
         CragRating.objects.create(crag=self.published, user=self.staff, rating_babies=5)
         response = self.client.get(reverse("crags:detail", args=[self.published.pk]))
         self.assertContains(response, "★ 4.5/5 (2)")
+
+    def test_list_shows_community_average_in_brackets(self):
+        self.published.rating_babies = 4
+        self.published.save()
+        CragRating.objects.create(crag=self.published, user=self.bob, rating_babies=3)
+        CragRating.objects.create(crag=self.published, user=self.staff, rating_babies=4)
+        response = self.client.get(reverse("crags:list"))
+        self.assertContains(response, "Babies: ★ 4/5 (3.5)")

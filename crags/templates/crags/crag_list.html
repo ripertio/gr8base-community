@@ -242,14 +242,14 @@ Find crags – gr8base community
 
                 <div class="crag-meta">
 
-                    {% if crag.rating_babies %}
-                        <span>Babies: ★ {{ crag.rating_babies }}/5</span>
+                    {% if crag.rating_babies or crag.community.babies %}
+                        <span>Babies: ★ {% if crag.rating_babies %}{{ crag.rating_babies }}/5{% else %}–{% endif %}{% if crag.community.babies %} ({{ crag.community.babies|floatformat:1 }}){% endif %}</span>
                     {% endif %}
-                    {% if crag.rating_ages_2_4 %}
-                        <span>Ages 2–4: ★ {{ crag.rating_ages_2_4 }}/5</span>
+                    {% if crag.rating_ages_2_4 or crag.community.ages_2_4 %}
+                        <span>Ages 2–4: ★ {% if crag.rating_ages_2_4 %}{{ crag.rating_ages_2_4 }}/5{% else %}–{% endif %}{% if crag.community.ages_2_4 %} ({{ crag.community.ages_2_4|floatformat:1 }}){% endif %}</span>
                     {% endif %}
-                    {% if crag.rating_ages_5_plus %}
-                        <span>Ages 5+: ★ {{ crag.rating_ages_5_plus }}/5</span>
+                    {% if crag.rating_ages_5_plus or crag.community.ages_5_plus %}
+                        <span>Ages 5+: ★ {% if crag.rating_ages_5_plus %}{{ crag.rating_ages_5_plus }}/5{% else %}–{% endif %}{% if crag.community.ages_5_plus %} ({{ crag.community.ages_5_plus|floatformat:1 }}){% endif %}</span>
                     {% endif %}
 
 

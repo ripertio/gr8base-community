@@ -234,6 +234,10 @@ class Crag(models.Model):
             self.review_reason = reason if to == self.Status.NEEDS_CHANGES else ""
         self.status = to
         self.save()
+        if to in (self.Status.PUBLISHED, self.Status.NEEDS_CHANGES):
+            from .notifications import notify_submitter
+
+            notify_submitter(self)
 
     def clean(self):
         super().clean()

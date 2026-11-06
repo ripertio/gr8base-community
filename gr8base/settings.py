@@ -104,6 +104,8 @@ ANYMAIL = {
     "RESEND_API_KEY": os.environ["RESEND_API_KEY"],
 }
 DEFAULT_FROM_EMAIL = "gr8base community <hello@gr8base.com>"
+# Used for absolute links in emails (no request is available there)
+SITE_URL = os.environ.get("SITE_URL", "https://gr8base.com").rstrip("/")
 
 
 ROOT_URLCONF = 'gr8base.urls'

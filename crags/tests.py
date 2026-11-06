@@ -6,6 +6,7 @@ from django.contrib.auth import get_user_model
 from django.contrib.auth.models import Group
 from django.core.exceptions import ValidationError
 from django.core.files.uploadedfile import SimpleUploadedFile
+from django.core import mail
 from django.db import connection
 from django.test import SimpleTestCase, TestCase, override_settings
 from django.test.utils import CaptureQueriesContext
@@ -273,7 +274,6 @@ class CragManagersAdminTests(CragTestBase):
             reverse("admin:crags_crag_changelist"),
             reverse("admin:crags_crag_add"),
             reverse("admin:crags_crag_change", args=[self.published.pk]),
-            reverse("admin:crags_crag_delete", args=[self.published.pk]),
             reverse("admin:crags_area_changelist"),
             reverse("admin:crags_area_add"),
             reverse("admin:crags_area_change", args=[self.area.pk]),
@@ -286,6 +286,15 @@ class CragManagersAdminTests(CragTestBase):
         for url in urls:
             with self.subTest(url=url):
                 self.assertEqual(self.client.get(url).status_code, 200)
+
+    def test_group_cannot_delete_crags_but_can_publish(self):
+        self.assertEqual(
+            self.client.get(
+                reverse("admin:crags_crag_delete", args=[self.published.pk])
+            ).status_code,
+            403,
+        )
+        self.assertTrue(self.bob.has_perm("crags.can_publish_crag"))
 
     def test_group_can_manage_guidebooks_in_admin(self):
         book = Guidebook.objects.create(name="Admin Book")
@@ -1164,3 +1173,37 @@ class StaffReviewTests(CragTestBase):
         self.client.force_login(self.staff)
         response = self.client.get(reverse("admin:crags_crag_changelist"))
         self.assertNotContains(response, "Publish selected crags")
+
+
+class ReviewEmailTests(CragTestBase):
+    def test_publish_sends_mail_with_link(self):
+        self.pending.transition(Crag.Status.PUBLISHED, self.staff)
+        self.assertEqual(len(mail.outbox), 1)
+        message = mail.outbox[0]
+        self.assertEqual(message.to, ["alice@example.com"])
+        self.assertIn("Waiting", message.body)
+        self.assertIn(reverse("crags:detail", args=[self.pending.pk]), message.body)
+
+    def test_return_mail_contains_reason(self):
+        self.pending.transition(Crag.Status.NEEDS_CHANGES, self.staff, "Add a parking location.")
+        self.assertIn("Add a parking location.", mail.outbox[0].body)
+
+    def test_submit_and_reject_send_no_mail(self):
+        self.draft.transition(Crag.Status.PENDING, self.alice)
+        self.pending.transition(Crag.Status.REJECTED, self.staff)
+        self.assertEqual(len(mail.outbox), 0)
+
+    def test_mail_failure_does_not_block_transition(self):
+        with self.settings(EMAIL_BACKEND="crags.tests.BrokenBackend"):
+            with self.assertLogs("crags.notifications", level="ERROR"):
+                self.pending.transition(Crag.Status.PUBLISHED, self.staff)
+        self.pending.refresh_from_db()
+        self.assertEqual(self.pending.status, Crag.Status.PUBLISHED)
+
+
+from django.core.mail.backends.base import BaseEmailBackend
+
+
+class BrokenBackend(BaseEmailBackend):
+    def send_messages(self, email_messages):
+        raise RuntimeError("provider down")

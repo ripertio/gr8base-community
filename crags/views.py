@@ -152,7 +152,7 @@ def crag_list(request):
 def crag_detail(request, pk):
     crag = get_object_or_404(
         visible_crags(request.user).select_related("created_by").prefetch_related(
-            "photos", "approach_features", "base_features"
+            "photos", "approach_features", "base_features", "guidebooks"
         ),
         pk=pk,
     )

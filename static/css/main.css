@@ -101,3 +101,6 @@
 [data-guidebook-dialog] article{width:min(32rem,92vw)}
 [data-guidebook-dialog] footer{display:grid;grid-template-columns:1fr 1fr;gap:.75rem}
 [data-guidebook-dialog] footer button{margin:0}
+.guidebook-list{display:grid;grid-template-columns:repeat(auto-fill,minmax(16rem,1fr));gap:1rem;margin:0;padding:0;list-style:none}
+.guidebook-list li{display:flex;align-items:center;gap:.75rem;margin:0;padding:0}
+.guidebook-list img{flex:none;width:3.5rem;aspect-ratio:3/4;object-fit:cover;border-radius:var(--pico-border-radius)}

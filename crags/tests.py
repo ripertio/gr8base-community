@@ -6,7 +6,9 @@ from django.contrib.auth import get_user_model
 from django.contrib.auth.models import Group
 from django.core.exceptions import ValidationError
 from django.core.files.uploadedfile import SimpleUploadedFile
+from django.db import connection
 from django.test import SimpleTestCase, TestCase, override_settings
+from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
 from PIL import Image
 
@@ -632,6 +634,36 @@ class NewAreaTests(CragTestBase):
         )
         self.assertEqual(resp.status_code, 200)
         self.assertFalse(Crag.objects.filter(name="New").exists())
+
+
+class GuidebookDetailTests(CragTestBase):
+    def test_detail_lists_guidebooks_with_link_and_meta(self):
+        linked = Guidebook.objects.create(
+            name="Linked Book", url="https://example.com/b",
+            publisher="Panico", publish_year=2021,
+        )
+        plain = Guidebook.objects.create(name="Plain Book")
+        self.published.guidebooks.add(linked, plain)
+        resp = self.client.get(reverse("crags:detail", args=[self.published.pk]))
+        self.assertContains(resp, 'href="https://example.com/b"')
+        self.assertContains(resp, "Panico, 2021")
+        self.assertContains(resp, "Plain Book")
+        self.assertNotContains(resp, "2,021")
+
+    def test_detail_without_guidebooks_has_no_section(self):
+        resp = self.client.get(reverse("crags:detail", args=[self.published.pk]))
+        self.assertNotContains(resp, "<h2>Guidebooks</h2>")
+
+    def test_detail_query_count_does_not_grow_with_guidebooks(self):
+        url = reverse("crags:detail", args=[self.published.pk])
+        self.published.guidebooks.add(Guidebook.objects.create(name="B0"))
+        with CaptureQueriesContext(connection) as one:
+            self.client.get(url)
+        for i in range(1, 4):
+            self.published.guidebooks.add(Guidebook.objects.create(name=f"B{i}"))
+        with CaptureQueriesContext(connection) as four:
+            self.client.get(url)
+        self.assertEqual(len(one), len(four))
 
 
 class GuidebookFormTests(CragTestBase):

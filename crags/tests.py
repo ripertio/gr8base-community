@@ -194,7 +194,7 @@ class PublicVisibilityTests(CragTestBase):
         response = self.client.get(reverse("crags:detail", args=[self.published.pk]))
 
         self.assertContains(response, "No further information")
-        self.assertContains(response, "No information", count=1)
+        self.assertContains(response, "No information", count=2)
         self.assertNotContains(response, "Not stroller-friendly")
         self.assertNotContains(response, "No hazards reported")
 
@@ -222,9 +222,9 @@ class PublicVisibilityTests(CragTestBase):
         response = self.client.get(reverse("crags:detail", args=[self.published.pk]))
 
         html = response.content.decode()
-        self.assertRegex(html, r'class="assessment-warning">\s*Rockfall')
-        self.assertRegex(html, r'class="assessment-positive">\s*Stroller-friendly')
-        self.assertRegex(html, r'class="assessment-warning">\s*Fall hazard')
+        self.assertRegex(html, r'class="chip chip-bad">\s*Rockfall')
+        self.assertRegex(html, r'class="chip chip-good">\s*Stroller-friendly')
+        self.assertRegex(html, r'class="chip chip-bad">\s*Fall hazard')
         self.assertContains(response, "Not stroller-friendly")
         self.assertNotContains(response, "No hazards reported")
 

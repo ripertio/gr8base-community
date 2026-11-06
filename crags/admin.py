@@ -1,6 +1,6 @@
 from django.contrib import admin
 
-from .models import Area, Crag, Feature, Photo
+from .models import Area, Crag, CragRating, Feature, Photo
 
 
 @admin.register(Area)
@@ -44,3 +44,9 @@ class PhotoAdmin(admin.ModelAdmin):
         "caption",
         "created_at",
     )
+
+
+@admin.register(CragRating)
+class CragRatingAdmin(admin.ModelAdmin):
+    list_display = ("crag", "user", "rating_babies", "rating_ages_2_4", "rating_ages_5_plus", "updated_at")
+    search_fields = ("crag__name", "user__username")

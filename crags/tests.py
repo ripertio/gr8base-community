@@ -11,7 +11,7 @@ from django.urls import reverse
 from PIL import Image
 
 from .forms import MAX_EDGE, MAX_UPLOAD_BYTES, process_image
-from .models import Area, Crag, Feature, Photo
+from .models import Area, Crag, CragRating, Feature, Photo
 
 User = get_user_model()
 
@@ -798,3 +798,49 @@ class EventLoggingTests(CragTestBase):
                         process_image(upload)
                 self.assertIn(f"image rejected: {reason}", logs.output[0])
                 self.assertNoPersonalData(logs, "private-name")
+
+
+
+class CommunityRatingTests(CragTestBase):
+    def url(self, crag=None):
+        return reverse("crags:rate", args=[(crag or self.published).pk])
+
+    def test_anonymous_is_redirected_to_login(self):
+        response = self.client.post(self.url(), {"rating_babies": "3"})
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(CragRating.objects.count(), 0)
+
+    def test_author_cannot_rate_own_crag(self):
+        self.client.login(username="alice", password="pw-alice-123")
+        self.client.post(self.url(), {"rating_babies": "3"})
+        self.assertEqual(CragRating.objects.count(), 0)
+
+    def test_cannot_rate_unpublished_crag(self):
+        self.client.login(username="bob", password="pw-bob-123")
+        response = self.client.post(self.url(self.pending), {"rating_babies": "3"})
+        self.assertEqual(response.status_code, 404)
+
+    def test_rating_is_saved_and_updated(self):
+        self.client.login(username="bob", password="pw-bob-123")
+        self.client.post(self.url(), {"rating_babies": "3", "rating_ages_2_4": "5"})
+        self.client.post(self.url(), {"rating_babies": "4", "rating_ages_2_4": ""})
+        rating = CragRating.objects.get()
+        self.assertEqual(rating.rating_babies, 4)
+        self.assertIsNone(rating.rating_ages_2_4)
+
+    def test_invalid_score_is_rejected(self):
+        self.client.login(username="bob", password="pw-bob-123")
+        self.client.post(self.url(), {"rating_babies": "9"})
+        self.assertEqual(CragRating.objects.count(), 0)
+
+    def test_empty_submission_removes_rating(self):
+        self.client.login(username="bob", password="pw-bob-123")
+        self.client.post(self.url(), {"rating_babies": "3"})
+        self.client.post(self.url(), {})
+        self.assertEqual(CragRating.objects.count(), 0)
+
+    def test_detail_shows_average_per_age(self):
+        CragRating.objects.create(crag=self.published, user=self.bob, rating_babies=4)
+        CragRating.objects.create(crag=self.published, user=self.staff, rating_babies=5)
+        response = self.client.get(reverse("crags:detail", args=[self.published.pk]))
+        self.assertContains(response, "★ 4.5/5 (2)")

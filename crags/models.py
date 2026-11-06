@@ -208,3 +208,31 @@ class Photo(models.Model):
 
     def __str__(self):
         return f"Photo of {self.crag.name}"
+
+
+class CragRating(models.Model):
+    """A community member's family rating of a crag (one row per user and crag)."""
+
+    crag = models.ForeignKey(Crag, on_delete=models.CASCADE, related_name="ratings")
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="crag_ratings"
+    )
+    rating_babies = models.PositiveSmallIntegerField(
+        validators=[MinValueValidator(1), MaxValueValidator(5)], null=True, blank=True
+    )
+    rating_ages_2_4 = models.PositiveSmallIntegerField(
+        validators=[MinValueValidator(1), MaxValueValidator(5)], null=True, blank=True
+    )
+    rating_ages_5_plus = models.PositiveSmallIntegerField(
+        validators=[MinValueValidator(1), MaxValueValidator(5)], null=True, blank=True
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["crag", "user"], name="unique_rating_per_user"),
+        ]
+
+    def __str__(self):
+        return f"{self.user} → {self.crag}"

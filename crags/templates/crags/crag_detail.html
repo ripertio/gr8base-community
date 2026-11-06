@@ -47,12 +47,28 @@
 
         <article>
             <h4>Family rating</h4>
-            <ul>
-                <li>Babies (0–1): {% if crag.rating_babies %}★ {{ crag.rating_babies }}/5{% else %}–{% endif %}</li>
-                <li>Ages 2–4: {% if crag.rating_ages_2_4 %}★ {{ crag.rating_ages_2_4 }}/5{% else %}–{% endif %}</li>
-                <li>Ages 5+: {% if crag.rating_ages_5_plus %}★ {{ crag.rating_ages_5_plus }}/5{% else %}–{% endif %}</li>
-            </ul>
-
+            <table>
+                <thead>
+                    <tr><th></th><th>Author</th><th>Community</th></tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <th scope="row">Babies (0–1)</th>
+                        <td>{% if crag.rating_babies %}★ {{ crag.rating_babies }}/5{% else %}–{% endif %}</td>
+                        <td>{% if community.babies_n %}★ {{ community.babies|floatformat:1 }}/5 ({{ community.babies_n }}){% else %}–{% endif %}</td>
+                    </tr>
+                    <tr>
+                        <th scope="row">Ages 2–4</th>
+                        <td>{% if crag.rating_ages_2_4 %}★ {{ crag.rating_ages_2_4 }}/5{% else %}–{% endif %}</td>
+                        <td>{% if community.ages_2_4_n %}★ {{ community.ages_2_4|floatformat:1 }}/5 ({{ community.ages_2_4_n }}){% else %}–{% endif %}</td>
+                    </tr>
+                    <tr>
+                        <th scope="row">Ages 5+</th>
+                        <td>{% if crag.rating_ages_5_plus %}★ {{ crag.rating_ages_5_plus }}/5{% else %}–{% endif %}</td>
+                        <td>{% if community.ages_5_plus_n %}★ {{ community.ages_5_plus|floatformat:1 }}/5 ({{ community.ages_5_plus_n }}){% else %}–{% endif %}</td>
+                    </tr>
+                </tbody>
+            </table>
         </article>
        
         <article>
@@ -118,6 +134,38 @@
 
         </article>
     </div>
+
+    {% if can_rate %}
+    <details {% if not my_rating %}open{% endif %}>
+        <summary>{% if my_rating %}Update your rating{% else %}Rate this crag{% endif %}</summary>
+        <form method="post" action="{% url 'crags:rate' crag.pk %}">
+            {% csrf_token %}
+            <div class="grid">
+                <label>Babies (0–1)
+                    <select name="rating_babies">
+                        <option value="">–</option>
+                        {% for n in scores %}<option value="{{ n }}" {% if my_rating.rating_babies == n %}selected{% endif %}>{{ n }}</option>{% endfor %}
+                    </select>
+                </label>
+                <label>Ages 2–4
+                    <select name="rating_ages_2_4">
+                        <option value="">–</option>
+                        {% for n in scores %}<option value="{{ n }}" {% if my_rating.rating_ages_2_4 == n %}selected{% endif %}>{{ n }}</option>{% endfor %}
+                    </select>
+                </label>
+                <label>Ages 5+
+                    <select name="rating_ages_5_plus">
+                        <option value="">–</option>
+                        {% for n in scores %}<option value="{{ n }}" {% if my_rating.rating_ages_5_plus == n %}selected{% endif %}>{{ n }}</option>{% endfor %}
+                    </select>
+                </label>
+            </div>
+            <button type="submit">Save rating</button>
+        </form>
+    </details>
+    {% elif not user.is_authenticated and crag.status == "PUBLISHED" %}
+        <p><small><a href="{% url 'account_login' %}?next={{ request.path }}">Log in</a> to add your own rating.</small></p>
+    {% endif %}
 </section>
 
 <section>

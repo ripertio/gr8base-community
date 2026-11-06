@@ -69,6 +69,47 @@
                     </tr>
                 </tbody>
             </table>
+
+            {% if can_rate %}
+                <button type="button" class="outline" onclick="document.getElementById('rate-dialog').showModal()">
+                    {% if my_rating %}Update your rating{% else %}Rate this crag{% endif %}
+                </button>
+                <dialog id="rate-dialog">
+                    <article>
+                        <header>
+                            <button type="button" aria-label="Close" rel="prev" onclick="this.closest('dialog').close()"></button>
+                            <h3>Rate {{ crag.name }}</h3>
+                        </header>
+                        <form method="post" action="{% url 'crags:rate' crag.pk %}">
+                            {% csrf_token %}
+                            <label>Babies (0–1)
+                                <select name="rating_babies">
+                                <option value="">–</option>
+                                {% for n in scores %}<option value="{{ n }}" {% if my_rating.rating_babies == n %}selected{% endif %}>{{ n }}</option>{% endfor %}
+                            </select>
+                            </label>
+                            <label>Ages 2–4
+                                <select name="rating_ages_2_4">
+                                <option value="">–</option>
+                                {% for n in scores %}<option value="{{ n }}" {% if my_rating.rating_ages_2_4 == n %}selected{% endif %}>{{ n }}</option>{% endfor %}
+                            </select>
+                            </label>
+                            <label>Ages 5+
+                                <select name="rating_ages_5_plus">
+                                <option value="">–</option>
+                                {% for n in scores %}<option value="{{ n }}" {% if my_rating.rating_ages_5_plus == n %}selected{% endif %}>{{ n }}</option>{% endfor %}
+                            </select>
+                            </label>
+                            <small>Leave an age blank if you don't know it.</small>
+                            <footer>
+                                <button type="submit">Save rating</button>
+                            </footer>
+                        </form>
+                    </article>
+                </dialog>
+            {% elif not user.is_authenticated and crag.status == "PUBLISHED" %}
+                <p><small><a href="{% url 'account_login' %}?next={{ request.path }}">Log in</a> to add your own rating.</small></p>
+            {% endif %}
         </article>
        
         <article>
@@ -135,37 +176,6 @@
         </article>
     </div>
 
-    {% if can_rate %}
-    <details {% if not my_rating %}open{% endif %}>
-        <summary>{% if my_rating %}Update your rating{% else %}Rate this crag{% endif %}</summary>
-        <form method="post" action="{% url 'crags:rate' crag.pk %}">
-            {% csrf_token %}
-            <div class="grid">
-                <label>Babies (0–1)
-                    <select name="rating_babies">
-                        <option value="">–</option>
-                        {% for n in scores %}<option value="{{ n }}" {% if my_rating.rating_babies == n %}selected{% endif %}>{{ n }}</option>{% endfor %}
-                    </select>
-                </label>
-                <label>Ages 2–4
-                    <select name="rating_ages_2_4">
-                        <option value="">–</option>
-                        {% for n in scores %}<option value="{{ n }}" {% if my_rating.rating_ages_2_4 == n %}selected{% endif %}>{{ n }}</option>{% endfor %}
-                    </select>
-                </label>
-                <label>Ages 5+
-                    <select name="rating_ages_5_plus">
-                        <option value="">–</option>
-                        {% for n in scores %}<option value="{{ n }}" {% if my_rating.rating_ages_5_plus == n %}selected{% endif %}>{{ n }}</option>{% endfor %}
-                    </select>
-                </label>
-            </div>
-            <button type="submit">Save rating</button>
-        </form>
-    </details>
-    {% elif not user.is_authenticated and crag.status == "PUBLISHED" %}
-        <p><small><a href="{% url 'account_login' %}?next={{ request.path }}">Log in</a> to add your own rating.</small></p>
-    {% endif %}
 </section>
 
 <section>

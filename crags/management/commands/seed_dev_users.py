@@ -11,9 +11,9 @@ DEV_ROOT_PASSWORD = "dev-root"
 DEV_ROOT_EMAIL = "dev-root@localhost"
 
 # Regular dev users for trying out features as non-staff (password = username).
-# "author" owns the crag below, so dummy1/dummy2 can rate it as non-authors.
+# "author" owns the crag below (published in the dump), so dummy1/dummy2 can rate and comment as non-authors.
 DEV_USERNAMES = ("author", "dummy1", "dummy2")
-DEV_AUTHOR_CRAG = "Grauer Stein"
+DEV_AUTHOR_CRAG = "Kesselwand / Arena"
 
 
 def make_dev_user(username):
@@ -32,7 +32,7 @@ def make_dev_user(username):
 class Command(BaseCommand):
     help = (
         "Create dev-root (superuser) plus author/dummy1/dummy2, give dev-root all "
-        "ownerless crags and photos and hand 'Grauer Stein' to author (DEBUG only)."
+        "ownerless crags and photos and hand 'Kesselwand / Arena' to author (DEBUG only)."
     )
 
     @transaction.atomic

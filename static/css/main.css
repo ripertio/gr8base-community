@@ -104,3 +104,8 @@
 .guidebook-list{display:grid;grid-template-columns:repeat(auto-fill,minmax(16rem,1fr));gap:1rem;margin:0;padding:0;list-style:none}
 .guidebook-list li{display:flex;align-items:center;gap:.75rem;margin:0;padding:0}
 .guidebook-list img{flex:none;width:3.5rem;aspect-ratio:3/4;object-fit:cover;border-radius:var(--pico-border-radius)}
+
+.comment-header{display:flex;justify-content:space-between;align-items:baseline;gap:1rem}
+.comment-header form{margin:0}
+.comment-delete{display:inline;width:auto;margin:0;padding:0;border:0;background:none;box-shadow:none;color:var(--pico-primary);font-size:.875rem;text-decoration:underline;cursor:pointer}
+.comment-delete:hover,.comment-delete:focus-visible{color:var(--pico-primary-hover)}

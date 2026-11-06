@@ -313,6 +313,42 @@
 
 {% endif %}
 
+<section id="comments">
+    <h2>Comments ({{ comments|length }})</h2>
+
+    {% for comment in comments %}
+        <article>
+            <header class="comment-header">
+                <small>
+                    <strong>{% if comment.user.profile_public %}<a href="{% url 'profiles:detail' comment.user.username %}">{{ comment.user.username }}</a>{% else %}{{ comment.user.username }}{% endif %}</strong>
+                    · {{ comment.created_at|date:"j M Y" }}
+                </small>
+                {% if user.is_staff or comment.user_id == user.id %}
+                    <form method="post" action="{% url 'crags:comment_delete' comment.pk %}" onsubmit="return confirm('Delete this comment?')">
+                        {% csrf_token %}
+                        <button type="submit" class="comment-delete">Delete</button>
+                    </form>
+                {% endif %}
+            </header>
+            {{ comment.text|linebreaks }}
+        </article>
+    {% empty %}
+        <p><small>No comments yet.</small></p>
+    {% endfor %}
+
+    {% if can_comment %}
+        <form method="post" action="{% url 'crags:comment_add' crag.pk %}">
+            {% csrf_token %}
+            <label>Add a comment
+                <textarea name="text" rows="3" maxlength="{{ comment_max_length }}" required placeholder="Is the crag different from the description? Share what you found useful."></textarea>
+            </label>
+            <button type="submit">Post comment</button>
+        </form>
+    {% elif not user.is_authenticated and crag.status == "PUBLISHED" %}
+        <p><small><a href="{% url 'account_login' %}?next={{ request.path }}%23comments">Log in</a> to comment.</small></p>
+    {% endif %}
+</section>
+
 {% if crag.created_by.profile_public %}
     <p><small>Added by <a href="{% url 'profiles:detail' crag.created_by.username %}">{{ crag.created_by.username }}</a></small></p>
 {% endif %}

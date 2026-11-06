@@ -13,7 +13,7 @@ from django.urls import reverse
 from PIL import Image
 
 from .forms import MAX_EDGE, MAX_UPLOAD_BYTES, process_image
-from .models import Area, Crag, CragRating, Feature, Guidebook, Photo
+from .models import Area, Crag, CragComment, CragRating, Feature, Guidebook, Photo
 
 
 User = get_user_model()
@@ -1025,3 +1025,56 @@ class CommunityRatingTests(CragTestBase):
         CragRating.objects.create(crag=self.published, user=self.staff, rating_babies=4)
         response = self.client.get(reverse("crags:list"))
         self.assertContains(response, "Babies: ★ 4/5 (3.5)")
+
+
+class CragCommentTests(CragTestBase):
+    def add_url(self, crag=None):
+        return reverse("crags:comment_add", args=[(crag or self.published).pk])
+
+    def test_anonymous_cannot_comment(self):
+        response = self.client.post(self.add_url(), {"text": "Hi"})
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(CragComment.objects.count(), 0)
+
+    def test_user_can_comment_and_it_is_shown_with_author(self):
+        self.client.login(username="bob", password="pw-bob-123")
+        self.client.post(self.add_url(), {"text": "Path is washed out"})
+        response = self.client.get(reverse("crags:detail", args=[self.published.pk]))
+        self.assertContains(response, "Path is washed out")
+        self.assertContains(response, "bob")
+
+    def test_author_can_comment_on_own_crag(self):
+        self.client.login(username="alice", password="pw-alice-123")
+        self.client.post(self.add_url(), {"text": "Thanks!"})
+        self.assertEqual(CragComment.objects.count(), 1)
+
+    def test_cannot_comment_on_unpublished_crag(self):
+        self.client.login(username="bob", password="pw-bob-123")
+        response = self.client.post(self.add_url(self.pending), {"text": "Hi"})
+        self.assertEqual(response.status_code, 404)
+
+    def test_empty_and_too_long_comments_are_rejected(self):
+        self.client.login(username="bob", password="pw-bob-123")
+        self.client.post(self.add_url(), {"text": "   "})
+        self.client.post(self.add_url(), {"text": "x" * (CragComment.MAX_LENGTH + 1)})
+        self.assertEqual(CragComment.objects.count(), 0)
+
+    def test_owner_and_staff_can_delete_others_cannot(self):
+        comment = CragComment.objects.create(crag=self.published, user=self.bob, text="Hi")
+        url = reverse("crags:comment_delete", args=[comment.pk])
+        self.client.login(username="alice", password="pw-alice-123")
+        self.assertEqual(self.client.post(url).status_code, 403)
+        self.assertEqual(CragComment.objects.count(), 1)
+        self.client.login(username="bob", password="pw-bob-123")
+        self.client.post(url)
+        self.assertEqual(CragComment.objects.count(), 0)
+        comment = CragComment.objects.create(crag=self.published, user=self.bob, text="Hi")
+        self.client.login(username="staff", password="pw-staff-123")
+        self.client.post(reverse("crags:comment_delete", args=[comment.pk]))
+        self.assertEqual(CragComment.objects.count(), 0)
+
+    def test_list_shows_comment_count(self):
+        CragComment.objects.create(crag=self.published, user=self.bob, text="One")
+        CragComment.objects.create(crag=self.published, user=self.staff, text="Two")
+        response = self.client.get(reverse("crags:list"))
+        self.assertContains(response, "💬 2")

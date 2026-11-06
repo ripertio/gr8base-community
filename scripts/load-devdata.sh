@@ -71,4 +71,4 @@ echo "==> Starting web"
 
 echo
 echo "Done: http://localhost:8010  (log in as dev-root / dev-root;
-      author, dummy1, dummy2 use their username as password; "Grauer Stein" belongs to author)"
+      author, dummy1, dummy2 use their username as password; "Kesselwand / Arena" belongs to author)"

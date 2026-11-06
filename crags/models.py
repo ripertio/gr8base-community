@@ -263,3 +263,22 @@ class CragRating(models.Model):
 
     def __str__(self):
         return f"{self.user} → {self.crag}"
+
+
+class CragComment(models.Model):
+    """A short comment by a registered user (deleted together with the user)."""
+
+    MAX_LENGTH = 1000
+
+    crag = models.ForeignKey(Crag, on_delete=models.CASCADE, related_name="comments")
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="crag_comments"
+    )
+    text = models.TextField(max_length=MAX_LENGTH)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["created_at"]
+
+    def __str__(self):
+        return f"{self.user} on {self.crag}"

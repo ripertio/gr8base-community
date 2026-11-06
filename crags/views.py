@@ -322,14 +322,14 @@ def crag_create(request):
             if uploads_valid and not form.errors:
                 crag = form.save(commit=False)
                 crag.created_by = request.user
-                if request.POST.get("action") == "submit":
-                    crag.status = Crag.Status.PENDING
-                    messages.success(request, "Submitted. We will review this crag.")
-                else:
-                    crag.status = Crag.Status.DRAFT
-                    messages.success(request, "Draft saved.")
+                crag.status = Crag.Status.DRAFT
                 crag.save()
                 form.save_m2m()
+                if request.POST.get("action") == "submit":
+                    crag.transition(Crag.Status.PENDING, request.user)
+                    messages.success(request, "Submitted. We will review this crag.")
+                else:
+                    messages.success(request, "Draft saved.")
                 for content in converted:
                     Photo.objects.create(
                         crag=crag,
@@ -404,13 +404,18 @@ def crag_edit(request, pk):
 
             if uploads_valid and not form.errors:
                 crag = form.save(commit=False)
-                if request.POST.get("action") == "submit":
-                    crag.status = Crag.Status.PENDING
-                elif crag.status == Crag.Status.PUBLISHED and not request.user.is_staff:
-                    # any change to a published crag needs a new review
-                    crag.status = Crag.Status.PENDING
                 crag.save()
                 form.save_m2m()
+                resubmit = (
+                    request.POST.get("action") == "submit"
+                    # any change to a published crag needs a new review
+                    or (
+                        crag.status == Crag.Status.PUBLISHED
+                        and not request.user.is_staff
+                    )
+                )
+                if resubmit and Crag.Status.PENDING in crag.ALLOWED_TRANSITIONS[crag.status]:
+                    crag.transition(Crag.Status.PENDING, request.user)
                 for content in converted:
                     Photo.objects.create(
                         crag=crag,

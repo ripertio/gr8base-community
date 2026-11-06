@@ -6,12 +6,14 @@ from django.contrib.auth import get_user_model
 from django.contrib.auth.models import Group
 from django.core.exceptions import ValidationError
 from django.core.files.uploadedfile import SimpleUploadedFile
+from django.db import connection
 from django.test import SimpleTestCase, TestCase, override_settings
+from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
 from PIL import Image
 
 from .forms import MAX_EDGE, MAX_UPLOAD_BYTES, process_image
-from .models import Area, Crag, Feature, Photo
+from .models import Area, Crag, Feature, Guidebook, Photo
 
 User = get_user_model()
 
@@ -30,7 +32,6 @@ def form_data(base_area, **overrides):
         "approach_features": [],
         "base_assessed": "",
         "base_features": [],
-        "guidebook": "",
         "location": "",
         "parking": "",
         "family_notes": "",
@@ -284,6 +285,52 @@ class CragManagersAdminTests(CragTestBase):
         for url in urls:
             with self.subTest(url=url):
                 self.assertEqual(self.client.get(url).status_code, 200)
+
+    def test_group_can_manage_guidebooks_in_admin(self):
+        book = Guidebook.objects.create(name="Admin Book")
+        urls = [
+            reverse("admin:crags_guidebook_changelist"),
+            reverse("admin:crags_guidebook_add"),
+            reverse("admin:crags_guidebook_change", args=[book.pk]),
+            reverse("admin:crags_guidebook_delete", args=[book.pk]),
+        ]
+        for url in urls:
+            with self.subTest(url=url):
+                self.assertEqual(self.client.get(url).status_code, 200)
+
+    def test_admin_guidebook_with_name_only(self):
+        resp = self.client.post(
+            reverse("admin:crags_guidebook_add"), {"name": "Only Name"}
+        )
+        self.assertEqual(resp.status_code, 302)
+        self.assertTrue(Guidebook.objects.filter(name="Only Name").exists())
+
+    def test_admin_guidebook_requires_name(self):
+        resp = self.client.post(reverse("admin:crags_guidebook_add"), {"name": ""})
+        self.assertEqual(resp.status_code, 200)
+        self.assertFalse(Guidebook.objects.exists())
+
+    def test_admin_guidebook_picture_is_reencoded_to_webp(self):
+        with tempfile.TemporaryDirectory() as media, override_settings(MEDIA_ROOT=media):
+            resp = self.client.post(
+                reverse("admin:crags_guidebook_add"),
+                {"name": "Pic", "picture": image_upload("cover.jpg")},
+            )
+            self.assertEqual(resp.status_code, 302)
+            book = Guidebook.objects.get(name="Pic")
+            self.assertTrue(book.picture.name.endswith(".webp"))
+            self.assertNotIn("cover", book.picture.name)
+
+    def test_admin_guidebook_rejects_non_image(self):
+        resp = self.client.post(
+            reverse("admin:crags_guidebook_add"),
+            {
+                "name": "Bad",
+                "picture": SimpleUploadedFile("x.jpg", b"not an image", "image/jpeg"),
+            },
+        )
+        self.assertEqual(resp.status_code, 200)
+        self.assertFalse(Guidebook.objects.exists())
 
     def test_crag_managers_group_does_not_grant_superuser(self):
         self.assertFalse(self.bob.is_superuser)
@@ -587,6 +634,131 @@ class NewAreaTests(CragTestBase):
         )
         self.assertEqual(resp.status_code, 200)
         self.assertFalse(Crag.objects.filter(name="New").exists())
+
+
+class GuidebookDetailTests(CragTestBase):
+    def test_detail_lists_guidebooks_with_link_and_meta(self):
+        linked = Guidebook.objects.create(
+            name="Linked Book", url="https://example.com/b",
+            publisher="Panico", publish_year=2021,
+        )
+        plain = Guidebook.objects.create(name="Plain Book")
+        self.published.guidebooks.add(linked, plain)
+        resp = self.client.get(reverse("crags:detail", args=[self.published.pk]))
+        self.assertContains(resp, 'href="https://example.com/b"')
+        self.assertContains(resp, "Panico, 2021")
+        self.assertContains(resp, "Plain Book")
+        self.assertNotContains(resp, "2,021")
+
+    def test_detail_without_guidebooks_has_no_section(self):
+        resp = self.client.get(reverse("crags:detail", args=[self.published.pk]))
+        self.assertNotContains(resp, "<h2>Guidebooks</h2>")
+
+    def test_detail_query_count_does_not_grow_with_guidebooks(self):
+        url = reverse("crags:detail", args=[self.published.pk])
+        self.published.guidebooks.add(Guidebook.objects.create(name="B0"))
+        with CaptureQueriesContext(connection) as one:
+            self.client.get(url)
+        for i in range(1, 4):
+            self.published.guidebooks.add(Guidebook.objects.create(name=f"B{i}"))
+        with CaptureQueriesContext(connection) as four:
+            self.client.get(url)
+        self.assertEqual(len(one), len(four))
+
+
+class GuidebookFormTests(CragTestBase):
+    def setUp(self):
+        self.client.force_login(self.bob)
+
+    def test_select_several_existing_guidebooks(self):
+        a = Guidebook.objects.create(name="Book A")
+        b = Guidebook.objects.create(name="Book B")
+        self.client.post(
+            reverse("crags:create"),
+            form_data(self.area, name="New", guidebooks=[a.pk, b.pk]),
+        )
+        self.assertEqual(set(Crag.objects.get(name="New").guidebooks.all()), {a, b})
+
+    def test_one_guidebook_on_several_crags(self):
+        book = Guidebook.objects.create(name="Shared")
+        for name in ("One", "Two"):
+            self.client.post(
+                reverse("crags:create"),
+                form_data(self.area, name=name, guidebooks=[book.pk]),
+            )
+        self.assertEqual(book.crags.count(), 2)
+
+    def test_new_guidebook_with_name_only(self):
+        self.client.post(
+            reverse("crags:create"),
+            form_data(self.area, name="New", new_guidebook="Fresh Book"),
+        )
+        book = Guidebook.objects.get(name="Fresh Book")
+        self.assertEqual(book.url, "")
+        self.assertIsNone(book.publish_year)
+        self.assertFalse(book.picture)
+        self.assertIn(book, Crag.objects.get(name="New").guidebooks.all())
+
+    def test_new_guidebook_with_all_details(self):
+        with tempfile.TemporaryDirectory() as media, override_settings(MEDIA_ROOT=media):
+            self.client.post(
+                reverse("crags:create"),
+                form_data(
+                    self.area,
+                    name="New",
+                    new_guidebook="Full Book",
+                    new_guidebook_url="https://example.com/book",
+                    new_guidebook_publisher="Panico",
+                    new_guidebook_year="2021",
+                    new_guidebook_picture=image_upload("cover.jpg"),
+                ),
+            )
+            book = Guidebook.objects.get(name="Full Book")
+            self.assertEqual(book.url, "https://example.com/book")
+            self.assertEqual(book.publisher, "Panico")
+            self.assertEqual(book.publish_year, 2021)
+            self.assertTrue(book.picture.name.endswith(".webp"))
+
+    def test_new_guidebook_added_on_edit_keeps_existing_ones(self):
+        old = Guidebook.objects.create(name="Old")
+        self.published.guidebooks.add(old)
+        self.published.created_by = self.bob
+        self.published.save()
+        self.client.post(
+            reverse("crags:edit", args=[self.published.pk]),
+            form_data(
+                self.area, name="Public", guidebooks=[old.pk], new_guidebook="Extra"
+            ),
+        )
+        names = set(self.published.guidebooks.values_list("name", flat=True))
+        self.assertEqual(names, {"Old", "Extra"})
+
+    def test_new_guidebook_reuses_existing_name_case_insensitive(self):
+        Guidebook.objects.create(name="Panico Pfalz")
+        self.client.post(
+            reverse("crags:create"),
+            form_data(self.area, name="New", new_guidebook=" panico   pfalz "),
+        )
+        self.assertEqual(Guidebook.objects.count(), 1)
+        self.assertEqual(Crag.objects.get(name="New").guidebooks.count(), 1)
+
+    def test_details_without_name_are_rejected(self):
+        resp = self.client.post(
+            reverse("crags:create"),
+            form_data(self.area, name="New", new_guidebook_publisher="Panico"),
+        )
+        self.assertEqual(resp.status_code, 200)
+        self.assertFalse(Crag.objects.filter(name="New").exists())
+
+    def test_invalid_year_is_rejected(self):
+        resp = self.client.post(
+            reverse("crags:create"),
+            form_data(
+                self.area, name="New", new_guidebook="Book", new_guidebook_year="1200"
+            ),
+        )
+        self.assertEqual(resp.status_code, 200)
+        self.assertFalse(Guidebook.objects.exists())
 
 
 class PhotoUploadTests(CragTestBase):

@@ -284,6 +284,52 @@ class CragManagersAdminTests(CragTestBase):
             with self.subTest(url=url):
                 self.assertEqual(self.client.get(url).status_code, 200)
 
+    def test_group_can_manage_guidebooks_in_admin(self):
+        book = Guidebook.objects.create(name="Admin Book")
+        urls = [
+            reverse("admin:crags_guidebook_changelist"),
+            reverse("admin:crags_guidebook_add"),
+            reverse("admin:crags_guidebook_change", args=[book.pk]),
+            reverse("admin:crags_guidebook_delete", args=[book.pk]),
+        ]
+        for url in urls:
+            with self.subTest(url=url):
+                self.assertEqual(self.client.get(url).status_code, 200)
+
+    def test_admin_guidebook_with_name_only(self):
+        resp = self.client.post(
+            reverse("admin:crags_guidebook_add"), {"name": "Only Name"}
+        )
+        self.assertEqual(resp.status_code, 302)
+        self.assertTrue(Guidebook.objects.filter(name="Only Name").exists())
+
+    def test_admin_guidebook_requires_name(self):
+        resp = self.client.post(reverse("admin:crags_guidebook_add"), {"name": ""})
+        self.assertEqual(resp.status_code, 200)
+        self.assertFalse(Guidebook.objects.exists())
+
+    def test_admin_guidebook_picture_is_reencoded_to_webp(self):
+        with tempfile.TemporaryDirectory() as media, override_settings(MEDIA_ROOT=media):
+            resp = self.client.post(
+                reverse("admin:crags_guidebook_add"),
+                {"name": "Pic", "picture": image_upload("cover.jpg")},
+            )
+            self.assertEqual(resp.status_code, 302)
+            book = Guidebook.objects.get(name="Pic")
+            self.assertTrue(book.picture.name.endswith(".webp"))
+            self.assertNotIn("cover", book.picture.name)
+
+    def test_admin_guidebook_rejects_non_image(self):
+        resp = self.client.post(
+            reverse("admin:crags_guidebook_add"),
+            {
+                "name": "Bad",
+                "picture": SimpleUploadedFile("x.jpg", b"not an image", "image/jpeg"),
+            },
+        )
+        self.assertEqual(resp.status_code, 200)
+        self.assertFalse(Guidebook.objects.exists())
+
     def test_crag_managers_group_does_not_grant_superuser(self):
         self.assertFalse(self.bob.is_superuser)
 

@@ -132,8 +132,6 @@ class Crag(models.Model):
 
     base_assessed = models.BooleanField(default=False)
 
-    guidebook = models.CharField(max_length=250, blank=True)  # legacy, removed later
-
     guidebooks = models.ManyToManyField(
         Guidebook,
         blank=True,

@@ -194,7 +194,7 @@ def crag_mine(request):
 @login_required
 def crag_create(request):
     if request.method == "POST":
-        form = CragForm(request.POST)
+        form = CragForm(request.POST, request.FILES)
         photo_form = BulkPhotoForm(request.POST)
         uploads = request.FILES.getlist("images")
 
@@ -270,7 +270,7 @@ def crag_edit(request, pk):
     existing = crag.photos.count()
 
     if request.method == "POST":
-        form = CragForm(request.POST, instance=crag)
+        form = CragForm(request.POST, request.FILES, instance=crag)
         photo_form = BulkPhotoForm(request.POST)
         uploads = request.FILES.getlist("images")
 

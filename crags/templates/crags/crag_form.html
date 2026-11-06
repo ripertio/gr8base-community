@@ -13,11 +13,30 @@
         {% csrf_token %}
         {{ form.non_field_errors }}
         {% for field in form %}
+            {% if "new_guidebook" in field.name %}
+                {# rendered inside the guidebook dialog below #}
+            {% else %}
             {% if field.name == "approach_assessed" or field.name == "base_assessed" %}
                 <fieldset>
                     <legend>Known hazards / features</legend>
             {% endif %}
             {{ field.as_field_group }}
+            {% if field.name == "guidebooks" %}
+                <dialog data-guidebook-dialog>
+                    <article>
+                        <header><strong>Add a new guidebook</strong></header>
+                        {{ form.new_guidebook.as_field_group }}
+                        {{ form.new_guidebook_url.as_field_group }}
+                        {{ form.new_guidebook_publisher.as_field_group }}
+                        {{ form.new_guidebook_year.as_field_group }}
+                        {{ form.new_guidebook_picture.as_field_group }}
+                        <footer>
+                            <button type="button" class="secondary" data-guidebook-cancel>Cancel</button>
+                            <button type="button" data-guidebook-add>Add guidebook</button>
+                        </footer>
+                    </article>
+                </dialog>
+            {% endif %}
             {% if field.name == "location" %}
                 <button type="button" class="outline" data-use-current-location>
                     Use my current location
@@ -26,6 +45,7 @@
             {% endif %}
             {% if field.name == "approach_features" or field.name == "base_features" %}
                 </fieldset>
+            {% endif %}
             {% endif %}
         {% endfor %}
 

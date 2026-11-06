@@ -175,10 +175,10 @@
 </section>
 
 
-{% if crag.guidebook or crag.parking or crag.latitude != None or crag.longitude != None %}
+{% if crag.guidebooks.all or crag.parking or crag.latitude != None or crag.longitude != None %}
 <section>
     <h2>Location and access</h2>
-    {% if crag.guidebook %}<p><strong>Guidebook:</strong> {{ crag.guidebook }}</p>{% endif %}
+    {% if crag.guidebooks.all %}<p><strong>Guidebooks:</strong> {{ crag.guidebooks.all|join:", " }}</p>{% endif %}
     {% if crag.parking %}<p><strong>Parking:</strong> {{ crag.parking|linebreaksbr }}</p>{% endif %}
     {% if crag.latitude != None and crag.longitude != None %}
         <p>

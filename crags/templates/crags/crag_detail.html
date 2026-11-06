@@ -43,10 +43,11 @@
     </h2>
 
 
-    <div class="grid">
+    <div class="grid family-grid">
 
         <article>
             <h4>Family rating</h4>
+            <div class="overflow-auto">
             <table>
                 <thead>
                     <tr><th></th><th>Author</th><th>Community</th></tr>
@@ -69,6 +70,7 @@
                     </tr>
                 </tbody>
             </table>
+            </div>
 
             {% if can_rate %}
                 <button type="button" class="outline" onclick="document.getElementById('rate-dialog').showModal()">
@@ -114,20 +116,16 @@
        
         <article>
             <h4>Approach</h4>
-            <h3>
-                {% if crag.approach_minutes %}
-                    {{ crag.approach_minutes }} min
-                {% else %}
-                    –
-                {% endif %}
-            </h3>
+            {% if crag.approach_minutes %}
+                <ul class="chips"><li class="chip">🥾 {{ crag.approach_minutes }} min</li></ul>
+            {% endif %}
             {% if not crag.approach_assessed %}
                 <p class="assessment-neutral">No further information</p>
             {% else %}
                     {% if approach_features %}
-                        <ul>
+                        <ul class="chips">
                             {% for feature in approach_features %}
-                                <li class="{% if feature.slug == 'stroller_friendly' %}assessment-positive{% elif feature.slug == 'rockfall' or feature.slug == 'fall_hazard' %}assessment-warning{% else %}assessment-neutral{% endif %}">
+                                <li class="chip {% if feature.slug == 'stroller_friendly' %}chip-good{% elif feature.slug == 'rockfall' or feature.slug == 'fall_hazard' %}chip-bad{% endif %}">
                                     {{ feature.label }}
                                 </li>
                             {% endfor %}
@@ -136,7 +134,7 @@
                         <p class="assessment-neutral">No hazards reported</p>
                     {% endif %}
                     {% if not approach_stroller_friendly %}
-                        <p class="assessment-warning">Not stroller-friendly</p>
+                        <ul class="chips"><li class="chip chip-bad">Not stroller-friendly</li></ul>
                     {% endif %}
             {% endif %}
         </article>
@@ -146,9 +144,9 @@
                 <p class="assessment-neutral">No information</p>
             {% else %}
                     {% if base_features %}
-                        <ul>
+                        <ul class="chips">
                             {% for feature in base_features %}
-                                <li class="{% if feature.slug == 'stroller_friendly' %}assessment-positive{% elif feature.slug == 'rockfall' or feature.slug == 'fall_hazard' %}assessment-warning{% else %}assessment-neutral{% endif %}">
+                                <li class="chip {% if feature.slug == 'stroller_friendly' %}chip-good{% elif feature.slug == 'rockfall' or feature.slug == 'fall_hazard' %}chip-bad{% endif %}">
                                     {{ feature.label }}
                                 </li>
                             {% endfor %}
@@ -157,7 +155,7 @@
                         <p class="assessment-neutral">No hazards reported</p>
                     {% endif %}
                     {% if not base_stroller_friendly %}
-                        <p class="assessment-warning">Not stroller-friendly</p>
+                        <ul class="chips"><li class="chip chip-bad">Not stroller-friendly</li></ul>
                     {% endif %}
             {% endif %}
         </article>
@@ -165,13 +163,11 @@
 
             <h4>Aspect</h4>
 
-            <h3>
-                {% if crag.orientation %}
-                    {{ crag.get_orientation_display }}
-                {% else %}
-                    –
-                {% endif %}
-            </h3>
+            {% if crag.orientation %}
+                <ul class="chips"><li class="chip">{{ crag.get_orientation_display }}</li></ul>
+            {% else %}
+                <p class="assessment-neutral">No information</p>
+            {% endif %}
 
         </article>
     </div>

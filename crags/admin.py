@@ -3,7 +3,7 @@ from django.contrib import admin
 from django.core.files.uploadedfile import UploadedFile
 
 from .forms import process_image
-from .models import Area, Crag, CragRating, Feature, Guidebook, Photo
+from .models import Area, Crag, CragComment, CragRating, Feature, Guidebook, Photo
 
 
 @admin.register(Area)
@@ -75,3 +75,9 @@ class PhotoAdmin(admin.ModelAdmin):
 class CragRatingAdmin(admin.ModelAdmin):
     list_display = ("crag", "user", "rating_babies", "rating_ages_2_4", "rating_ages_5_plus", "updated_at")
     search_fields = ("crag__name", "user__username")
+
+
+@admin.register(CragComment)
+class CragCommentAdmin(admin.ModelAdmin):
+    list_display = ("crag", "user", "created_at")
+    search_fields = ("crag__name", "user__username", "text")

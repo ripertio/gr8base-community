@@ -253,6 +253,10 @@ Find crags – gr8base community
                     {% endif %}
 
 
+                    {% if crag.comment_count %}
+                        <span>💬 {{ crag.comment_count }}</span>
+                    {% endif %}
+
                     {% if crag.approach_minutes %}
 
                         <span>

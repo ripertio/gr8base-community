@@ -2,13 +2,14 @@ import logging
 
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
-from django.core.exceptions import ValidationError
+from django.core.exceptions import PermissionDenied, ValidationError
 from django.db.models import Avg, Count, Q
 from django.shortcuts import get_object_or_404, redirect, render
+from django.urls import reverse
 from django.views.decorators.http import require_POST
 
 from .forms import BulkPhotoForm, CragForm, process_image
-from .models import Area, Crag, CragRating, Feature, Photo
+from .models import Area, Crag, CragComment, CragRating, Feature, Photo
 
 logger = logging.getLogger(__name__)
 
@@ -121,8 +122,14 @@ def crag_list(request):
             ages_5_plus=Avg("rating_ages_5_plus"),
         )
     }
+    comment_counts = dict(
+        CragComment.objects.filter(crag__in=crags)
+        .values_list("crag_id")
+        .annotate(n=Count("id"))
+    )
     for crag in crags:
         crag.community = averages.get(crag.pk, {})
+        crag.comment_count = comment_counts.get(crag.pk, 0)
     areas = (
         Area.objects.filter(crags__status__in=Crag.PUBLIC_STATUSES)
         .distinct()
@@ -199,6 +206,10 @@ def crag_detail(request, pk):
             "community": community,
             "can_rate": can_rate,
             "my_rating": my_rating,
+            "comments": crag.comments.select_related("user"),
+            "can_comment": request.user.is_authenticated
+            and crag.status == Crag.Status.PUBLISHED,
+            "comment_max_length": CragComment.MAX_LENGTH,
             "scores": range(1, 6),
             "approach_features": approach_features,
             "approach_stroller_friendly": any(
@@ -242,6 +253,34 @@ def crag_rate(request, pk):
         )
         messages.success(request, "Thanks for rating!")
     return redirect("crags:detail", pk=pk)
+
+
+@login_required
+@require_POST
+def comment_add(request, pk):
+    crag = get_object_or_404(Crag.objects.published(), pk=pk)
+    text = request.POST.get("text", "").strip()
+    if not text:
+        messages.error(request, "Please write a comment.")
+    elif len(text) > CragComment.MAX_LENGTH:
+        messages.error(
+            request, f"Comments can be at most {CragComment.MAX_LENGTH} characters."
+        )
+    else:
+        CragComment.objects.create(crag=crag, user=request.user, text=text)
+        messages.success(request, "Comment added.")
+    return redirect(reverse("crags:detail", args=[crag.pk]) + "#comments")
+
+
+@login_required
+@require_POST
+def comment_delete(request, pk):
+    comment = get_object_or_404(CragComment, pk=pk)
+    if not (request.user.is_staff or comment.user_id == request.user.id):
+        raise PermissionDenied
+    comment.delete()
+    messages.success(request, "Comment deleted.")
+    return redirect(reverse("crags:detail", args=[comment.crag_id]) + "#comments")
 
 
 @login_required

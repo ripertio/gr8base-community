@@ -318,19 +318,19 @@
 
     {% for comment in comments %}
         <article>
-            <header>
+            <header class="comment-header">
                 <small>
                     <strong>{% if comment.user.profile_public %}<a href="{% url 'profiles:detail' comment.user.username %}">{{ comment.user.username }}</a>{% else %}{{ comment.user.username }}{% endif %}</strong>
                     · {{ comment.created_at|date:"j M Y" }}
                 </small>
+                {% if user.is_staff or comment.user_id == user.id %}
+                    <form method="post" action="{% url 'crags:comment_delete' comment.pk %}" onsubmit="return confirm('Delete this comment?')">
+                        {% csrf_token %}
+                        <button type="submit" class="comment-delete">Delete</button>
+                    </form>
+                {% endif %}
             </header>
             {{ comment.text|linebreaks }}
-            {% if user.is_staff or comment.user_id == user.id %}
-                <form method="post" action="{% url 'crags:comment_delete' comment.pk %}" onsubmit="return confirm('Delete this comment?')">
-                    {% csrf_token %}
-                    <button type="submit" class="outline secondary">Delete</button>
-                </form>
-            {% endif %}
         </article>
     {% empty %}
         <p><small>No comments yet.</small></p>

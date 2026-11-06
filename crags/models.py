@@ -2,6 +2,7 @@ from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.core.validators import MinValueValidator, MaxValueValidator
 from django.db import models
+from django.utils import timezone
 import uuid
 
 def photo_upload_path(instance, filename):
@@ -47,6 +48,10 @@ class Guidebook(models.Model):
         return self.name
 
 
+class InvalidTransition(Exception):
+    pass
+
+
 class CragQuerySet(models.QuerySet):
     def published(self):
         return self.filter(status=Crag.Status.PUBLISHED)
@@ -60,6 +65,7 @@ class Crag(models.Model):
         DRAFT = "DRAFT", "Draft"
         PENDING = "PENDING", "Pending review"
         PUBLISHED = "PUBLISHED", "Published"
+        NEEDS_CHANGES = "NEEDS_CHANGES", "Needs changes"
         REJECTED = "REJECTED", "Rejected"
        # statuses that anonymous visitors may see
     PUBLIC_STATUSES = (Status.PUBLISHED, Status.PENDING)
@@ -165,7 +171,7 @@ class Crag(models.Model):
     )
 
     status = models.CharField(
-        max_length=10,
+        max_length=20,
         choices=Status.choices,
         default=Status.DRAFT,
         db_index=True,
@@ -179,10 +185,55 @@ class Crag(models.Model):
         related_name="crags",
     )
 
+    submitted_at = models.DateTimeField(null=True, blank=True, db_index=True)
+    reviewed_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="reviewed_crags",
+    )
+    reviewed_at = models.DateTimeField(null=True, blank=True)
+    # Shown to the submitter when a crag is returned.
+    review_reason = models.TextField(blank=True)
+
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     objects = CragQuerySet.as_manager()
+
+    # status -> statuses it may move to via transition()
+    ALLOWED_TRANSITIONS = {
+        Status.DRAFT: {Status.PENDING},
+        Status.PENDING: {Status.PUBLISHED, Status.NEEDS_CHANGES, Status.REJECTED},
+        Status.NEEDS_CHANGES: {Status.PENDING},
+        Status.PUBLISHED: {Status.PENDING},
+        Status.REJECTED: set(),
+    }
+    MIN_REASON_LENGTH = 10
+
+    def transition(self, to, actor, reason=""):
+        """The only place that changes status; validates and sets audit fields."""
+        to = self.Status(to)
+        if to not in self.ALLOWED_TRANSITIONS[self.Status(self.status)]:
+            raise InvalidTransition(f"Cannot change {self.status} to {to}.")
+        reason = (reason or "").strip()
+        if to == self.Status.NEEDS_CHANGES and len(reason) < self.MIN_REASON_LENGTH:
+            raise ValidationError(
+                f"A reason of at least {self.MIN_REASON_LENGTH} characters is required."
+            )
+        now = timezone.now()
+        if to == self.Status.PENDING:
+            self.submitted_at = now
+            self.reviewed_by = None
+            self.reviewed_at = None
+            self.review_reason = ""
+        else:
+            self.reviewed_by = actor
+            self.reviewed_at = now
+            self.review_reason = reason if to == self.Status.NEEDS_CHANGES else ""
+        self.status = to
+        self.save()
 
     def clean(self):
         super().clean()
@@ -191,6 +242,7 @@ class Crag(models.Model):
 
     class Meta:
         ordering = ["name"]
+        permissions = [("can_publish_crag", "Can publish and return crags")]
 
     def __str__(self):
         return self.name

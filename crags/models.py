@@ -68,7 +68,7 @@ class Crag(models.Model):
         NEEDS_CHANGES = "NEEDS_CHANGES", "Needs changes"
         REJECTED = "REJECTED", "Rejected"
        # statuses that anonymous visitors may see
-    PUBLIC_STATUSES = (Status.PUBLISHED, Status.PENDING)
+    PUBLIC_STATUSES = (Status.PUBLISHED, Status.PENDING, Status.NEEDS_CHANGES)
 
     class Orientation(models.TextChoices):
         N = "N", "North"
@@ -207,7 +207,7 @@ class Crag(models.Model):
         Status.DRAFT: {Status.PENDING},
         Status.PENDING: {Status.PUBLISHED, Status.NEEDS_CHANGES, Status.REJECTED},
         Status.NEEDS_CHANGES: {Status.PENDING},
-        Status.PUBLISHED: {Status.PENDING},
+        Status.PUBLISHED: {Status.PENDING, Status.NEEDS_CHANGES},
         Status.REJECTED: set(),
     }
     MIN_REASON_LENGTH = 10

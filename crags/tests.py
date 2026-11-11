@@ -1207,3 +1207,42 @@ from django.core.mail.backends.base import BaseEmailBackend
 class BrokenBackend(BaseEmailBackend):
     def send_messages(self, email_messages):
         raise RuntimeError("provider down")
+
+
+class ResubmitPublishedTests(CragTestBase):
+    def _submit(self, user):
+        self.client.force_login(user)
+        response = self.client.post(
+            reverse("crags:edit", args=[self.published.pk]),
+            form_data(self.area, name="Public", action="submit"),
+        )
+        self.published.refresh_from_db()
+        return response
+
+    def test_owner_submit_on_published_goes_pending(self):
+        self.assertEqual(self._submit(self.alice).status_code, 302)
+        self.assertEqual(self.published.status, Crag.Status.PENDING)
+        self.assertIsNotNone(self.published.submitted_at)
+
+    def test_staff_submit_on_published_goes_pending(self):
+        self.assertEqual(self._submit(self.staff).status_code, 302)
+        self.assertEqual(self.published.status, Crag.Status.PENDING)
+
+
+class ReturnPublishedTests(CragTestBase):
+    def test_published_crag_can_be_returned_with_reason(self):
+        self.published.transition(
+            Crag.Status.NEEDS_CHANGES, self.staff, "Parking info is outdated."
+        )
+        self.published.refresh_from_db()
+        self.assertEqual(self.published.status, Crag.Status.NEEDS_CHANGES)
+        self.assertEqual(self.published.review_reason, "Parking info is outdated.")
+        self.assertIn("Parking info is outdated.", mail.outbox[0].body)
+        url = reverse("crags:detail", args=[self.published.pk])
+        self.assertEqual(self.client.get(url).status_code, 404)
+        self.client.force_login(self.alice)
+        self.assertContains(self.client.get(url), "Parking info is outdated.")
+
+    def test_published_return_still_needs_reason(self):
+        with self.assertRaises(ValidationError):
+            self.published.transition(Crag.Status.NEEDS_CHANGES, self.staff, "")

@@ -68,7 +68,7 @@ class Crag(models.Model):
         NEEDS_CHANGES = "NEEDS_CHANGES", "Needs changes"
         REJECTED = "REJECTED", "Rejected"
        # statuses that anonymous visitors may see
-    PUBLIC_STATUSES = (Status.PUBLISHED, Status.PENDING, Status.NEEDS_CHANGES)
+    PUBLIC_STATUSES = (Status.PUBLISHED, Status.PENDING)
 
     class Orientation(models.TextChoices):
         N = "N", "North"

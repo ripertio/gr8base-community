@@ -1127,9 +1127,12 @@ class StaffReviewTests(CragTestBase):
             Crag.Status.NEEDS_CHANGES, self.staff, "Please add a parking location."
         )
         url = reverse("crags:detail", args=[self.pending.pk])
-        self.assertEqual(self.client.get(url).status_code, 404)
+        # returned crags are public (PUBLIC_STATUSES), but the reason is not
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, 200)
+        self.assertNotContains(response, "Please add a parking location.")
         self.client.force_login(self.bob)
-        self.assertEqual(self.client.get(url).status_code, 404)
+        self.assertNotContains(self.client.get(url), "Please add a parking location.")
         self.client.force_login(self.alice)
         self.assertContains(self.client.get(url), "Please add a parking location.")
         self.assertContains(
@@ -1239,10 +1242,39 @@ class ReturnPublishedTests(CragTestBase):
         self.assertEqual(self.published.review_reason, "Parking info is outdated.")
         self.assertIn("Parking info is outdated.", mail.outbox[0].body)
         url = reverse("crags:detail", args=[self.published.pk])
-        self.assertEqual(self.client.get(url).status_code, 404)
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, 200)
+        self.assertNotContains(response, "Parking info is outdated.")
         self.client.force_login(self.alice)
         self.assertContains(self.client.get(url), "Parking info is outdated.")
 
     def test_published_return_still_needs_reason(self):
         with self.assertRaises(ValidationError):
             self.published.transition(Crag.Status.NEEDS_CHANGES, self.staff, "")
+
+
+class ReviewQueueAdminTests(CragTestBase):
+    def setUp(self):
+        self.root = User.objects.create_superuser("root", "r@example.com", "pw-root-123")
+        self.client.force_login(self.root)
+
+    def test_queue_lists_pending_oldest_first_with_photo_count(self):
+        from datetime import timedelta
+        from django.utils import timezone
+
+        now = timezone.now()
+        newer = Crag.objects.create(
+            name="Newer", area=self.area, created_by=self.alice,
+            status=Crag.Status.PENDING, submitted_at=now,
+        )
+        Crag.objects.filter(pk=self.pending.pk).update(submitted_at=now - timedelta(days=3))
+        Photo.objects.create(crag=newer, image="crags/x.webp")
+        Photo.objects.create(crag=newer, image="crags/y.webp")
+
+        response = self.client.get(reverse("admin:crags_crag_changelist"), {"queue": "pending"})
+
+        self.assertEqual(response.status_code, 200)
+        rows = list(response.context["cl"].result_list)
+        self.assertEqual([c.name for c in rows], ["Waiting", "Newer"])
+        self.assertEqual([c._photo_count for c in rows], [0, 2])
+        self.assertNotContains(response, "Draft entry")

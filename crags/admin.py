@@ -4,6 +4,8 @@ from django.contrib.admin import helpers
 from django.core.exceptions import ValidationError
 from django.core.files.uploadedfile import UploadedFile
 
+from django.db.models import Count
+
 from .forms import process_image
 from django.template.response import TemplateResponse
 
@@ -52,15 +54,42 @@ class ReturnToSubmitterForm(forms.Form):
     )
 
 
+class ReviewQueueFilter(admin.SimpleListFilter):
+    title = "review queue"
+    parameter_name = "queue"
+
+    def lookups(self, request, model_admin):
+        return [("pending", "Pending review (oldest first)")]
+
+    def queryset(self, request, queryset):
+        if self.value() == "pending":
+            return queryset.filter(status=Crag.Status.PENDING)
+        return queryset
+
+
 @admin.register(Crag)
 class CragAdmin(admin.ModelAdmin):
     filter_horizontal = ("guidebooks",)
-    list_display = ("name", "area", "status", "created_by", "submitted_at", "updated_at")
-    list_filter = ("status", "area")
+    list_display = (
+        "name", "area", "status", "created_by", "submitted_at", "photo_count", "updated_at",
+    )
+    list_filter = (ReviewQueueFilter, "status", "area")
     search_fields = ("name",)
     actions = ["publish", "return_to_submitter", "reject"]
     # Status changes go through the actions (Crag.transition) only.
     readonly_fields = ("status", "submitted_at", "reviewed_by", "reviewed_at", "review_reason")
+
+    def get_queryset(self, request):
+        return super().get_queryset(request).annotate(_photo_count=Count("photos"))
+
+    def get_ordering(self, request):
+        if request.GET.get("queue") == "pending":
+            return ["submitted_at", "pk"]
+        return super().get_ordering(request)
+
+    @admin.display(description="Photos", ordering="_photo_count")
+    def photo_count(self, obj):
+        return obj._photo_count
 
     def get_actions(self, request):
         actions = super().get_actions(request)

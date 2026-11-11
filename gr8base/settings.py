@@ -98,10 +98,14 @@ LOGIN_REDIRECT_URL = "/"
 ACCOUNT_LOGOUT_REDIRECT_URL = "/"
 LOGIN_URL = "account_login"
 
-# Dev: print emails to the container log instead of sending them
-EMAIL_BACKEND = "anymail.backends.resend.EmailBackend"
+RESEND_API_KEY = os.environ.get("RESEND_API_KEY", "")
+if DEBUG and not RESEND_API_KEY:
+    # Dev without a key: print emails to the container log instead of sending them
+    EMAIL_BACKEND = "django.core.mail.backends.console.EmailBackend"
+else:
+    EMAIL_BACKEND = "anymail.backends.resend.EmailBackend"
 ANYMAIL = {
-    "RESEND_API_KEY": os.environ["RESEND_API_KEY"],
+    "RESEND_API_KEY": RESEND_API_KEY,
 }
 DEFAULT_FROM_EMAIL = "gr8base community <hello@gr8base.com>"
 # Used for absolute links in emails (no request is available there)

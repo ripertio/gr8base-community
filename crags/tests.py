@@ -1127,12 +1127,9 @@ class StaffReviewTests(CragTestBase):
             Crag.Status.NEEDS_CHANGES, self.staff, "Please add a parking location."
         )
         url = reverse("crags:detail", args=[self.pending.pk])
-        # returned crags are public (PUBLIC_STATUSES), but the reason is not
-        response = self.client.get(url)
-        self.assertEqual(response.status_code, 200)
-        self.assertNotContains(response, "Please add a parking location.")
+        self.assertEqual(self.client.get(url).status_code, 404)
         self.client.force_login(self.bob)
-        self.assertNotContains(self.client.get(url), "Please add a parking location.")
+        self.assertEqual(self.client.get(url).status_code, 404)
         self.client.force_login(self.alice)
         self.assertContains(self.client.get(url), "Please add a parking location.")
         self.assertContains(
@@ -1243,8 +1240,8 @@ class ReturnPublishedTests(CragTestBase):
         self.assertIn("Parking info is outdated.", mail.outbox[0].body)
         url = reverse("crags:detail", args=[self.published.pk])
         response = self.client.get(url)
-        self.assertEqual(response.status_code, 200)
-        self.assertNotContains(response, "Parking info is outdated.")
+        self.assertEqual(response.status_code, 404)
+        self.assertNotContains(response, "Parking info is outdated.", status_code=404)
         self.client.force_login(self.alice)
         self.assertContains(self.client.get(url), "Parking info is outdated.")
 

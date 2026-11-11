@@ -22,7 +22,7 @@ This table describes the information that a crag entry can contain in gr8base co
 | Crag | Parking | String (location details or map link) | No | Implemented |
 | Other information | Description | String (free text) | No | Implemented |
 | Other information | Family notes | String (free text) | No | Implemented |
-| Administration | Status | Choice (draft, pending, published/approved, rejected) | System | Implemented |
+| Administration | Status | Choice (draft, pending, needs changes, published/approved, rejected) | System | Implemented |
 | Administration | Created by, created at, updated at | User reference, timestamps | System | Implemented |
 
 ## Guidebooks

@@ -11,6 +11,12 @@
 
 {% if crag.status == "PENDING" %}
     <p><mark>Pending review</mark></p>
+{% elif crag.status == "NEEDS_CHANGES" %}
+    <article>
+        <header><strong>Changes requested</strong></header>
+        {% if can_edit %}<p>{{ crag.review_reason|linebreaksbr }}</p>
+        <p><small>Edit this crag and use "Submit for review" to resubmit it.</small></p>{% endif %}
+    </article>
 {% elif crag.status != "PUBLISHED" %}
     <p><mark>Status: {{ crag.get_status_display }}</mark></p>
 {% endif %}

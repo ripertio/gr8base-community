@@ -6,6 +6,7 @@ from django.contrib.auth import get_user_model
 from django.contrib.auth.models import Group
 from django.core.exceptions import ValidationError
 from django.core.files.uploadedfile import SimpleUploadedFile
+from django.core import mail
 from django.db import connection
 from django.test import SimpleTestCase, TestCase, override_settings
 from django.test.utils import CaptureQueriesContext
@@ -13,7 +14,7 @@ from django.urls import reverse
 from PIL import Image
 
 from .forms import MAX_EDGE, MAX_UPLOAD_BYTES, process_image
-from .models import Area, Crag, CragComment, CragRating, Feature, Guidebook, Photo
+from .models import Area, Crag, InvalidTransition, CragComment, CragRating, Feature, Guidebook, Photo
 
 
 User = get_user_model()
@@ -193,7 +194,7 @@ class PublicVisibilityTests(CragTestBase):
         response = self.client.get(reverse("crags:detail", args=[self.published.pk]))
 
         self.assertContains(response, "No further information")
-        self.assertContains(response, "No information", count=1)
+        self.assertContains(response, "No information", count=2)
         self.assertNotContains(response, "Not stroller-friendly")
         self.assertNotContains(response, "No hazards reported")
 
@@ -221,9 +222,9 @@ class PublicVisibilityTests(CragTestBase):
         response = self.client.get(reverse("crags:detail", args=[self.published.pk]))
 
         html = response.content.decode()
-        self.assertRegex(html, r'class="assessment-warning">\s*Rockfall')
-        self.assertRegex(html, r'class="assessment-positive">\s*Stroller-friendly')
-        self.assertRegex(html, r'class="assessment-warning">\s*Fall hazard')
+        self.assertRegex(html, r'class="chip chip-bad">\s*Rockfall')
+        self.assertRegex(html, r'class="chip chip-good">\s*Stroller-friendly')
+        self.assertRegex(html, r'class="chip chip-bad">\s*Fall hazard')
         self.assertContains(response, "Not stroller-friendly")
         self.assertNotContains(response, "No hazards reported")
 
@@ -273,7 +274,6 @@ class CragManagersAdminTests(CragTestBase):
             reverse("admin:crags_crag_changelist"),
             reverse("admin:crags_crag_add"),
             reverse("admin:crags_crag_change", args=[self.published.pk]),
-            reverse("admin:crags_crag_delete", args=[self.published.pk]),
             reverse("admin:crags_area_changelist"),
             reverse("admin:crags_area_add"),
             reverse("admin:crags_area_change", args=[self.area.pk]),
@@ -286,6 +286,15 @@ class CragManagersAdminTests(CragTestBase):
         for url in urls:
             with self.subTest(url=url):
                 self.assertEqual(self.client.get(url).status_code, 200)
+
+    def test_group_cannot_delete_crags_but_can_publish(self):
+        self.assertEqual(
+            self.client.get(
+                reverse("admin:crags_crag_delete", args=[self.published.pk])
+            ).status_code,
+            403,
+        )
+        self.assertTrue(self.bob.has_perm("crags.can_publish_crag"))
 
     def test_group_can_manage_guidebooks_in_admin(self):
         book = Guidebook.objects.create(name="Admin Book")
@@ -1078,3 +1087,191 @@ class CragCommentTests(CragTestBase):
         CragComment.objects.create(crag=self.published, user=self.staff, text="Two")
         response = self.client.get(reverse("crags:list"))
         self.assertContains(response, "💬 2")
+
+
+class StaffReviewTests(CragTestBase):
+    def test_submit_sets_pending_and_submitted_at(self):
+        self.client.force_login(self.alice)
+        response = self.client.post(
+            reverse("crags:edit", args=[self.draft.pk]),
+            form_data(self.area, name="Draft entry", action="submit"),
+        )
+        self.assertEqual(response.status_code, 302)
+        self.draft.refresh_from_db()
+        self.assertEqual(self.draft.status, Crag.Status.PENDING)
+        self.assertIsNotNone(self.draft.submitted_at)
+        response = self.client.get(reverse("crags:detail", args=[self.draft.pk]))
+        self.assertContains(response, "Pending review")
+
+    def test_publish_sets_audit_fields(self):
+        self.pending.transition(Crag.Status.PUBLISHED, self.staff)
+        self.pending.refresh_from_db()
+        self.assertEqual(self.pending.status, Crag.Status.PUBLISHED)
+        self.assertEqual(self.pending.reviewed_by, self.staff)
+        self.assertIsNotNone(self.pending.reviewed_at)
+
+    def test_return_requires_reason(self):
+        with self.assertRaises(ValidationError):
+            self.pending.transition(Crag.Status.NEEDS_CHANGES, self.staff, "short")
+        self.pending.refresh_from_db()
+        self.assertEqual(self.pending.status, Crag.Status.PENDING)
+
+    def test_invalid_transition_changes_nothing(self):
+        with self.assertRaises(InvalidTransition):
+            self.published.transition(Crag.Status.DRAFT, self.staff)
+        self.published.refresh_from_db()
+        self.assertEqual(self.published.status, Crag.Status.PUBLISHED)
+
+    def test_returned_crag_visibility_and_resubmit(self):
+        self.pending.transition(
+            Crag.Status.NEEDS_CHANGES, self.staff, "Please add a parking location."
+        )
+        url = reverse("crags:detail", args=[self.pending.pk])
+        self.assertEqual(self.client.get(url).status_code, 404)
+        self.client.force_login(self.bob)
+        self.assertEqual(self.client.get(url).status_code, 404)
+        self.client.force_login(self.alice)
+        self.assertContains(self.client.get(url), "Please add a parking location.")
+        self.assertContains(
+            self.client.get(reverse("crags:mine")), "Please add a parking location."
+        )
+        self.client.post(
+            reverse("crags:edit", args=[self.pending.pk]),
+            form_data(self.area, name="Waiting", action="submit"),
+        )
+        self.pending.refresh_from_db()
+        self.assertEqual(self.pending.status, Crag.Status.PENDING)
+        self.assertEqual(self.pending.review_reason, "")
+
+    def _admin_post(self, user, action, crags, **extra):
+        self.client.force_login(user)
+        data = {
+            "action": action,
+            "_selected_action": [c.pk for c in crags],
+            **extra,
+        }
+        return self.client.post(reverse("admin:crags_crag_changelist"), data)
+
+    def test_admin_return_action_needs_reason(self):
+        admin_user = User.objects.create_superuser("root", "r@example.com", "pw-root-123")
+        response = self._admin_post(admin_user, "return_to_submitter", [self.pending], apply="1", reason="no")
+        self.assertEqual(response.status_code, 200)
+        self.pending.refresh_from_db()
+        self.assertEqual(self.pending.status, Crag.Status.PENDING)
+        self._admin_post(
+            admin_user, "return_to_submitter", [self.pending],
+            apply="1", reason="Please add photos of the base.",
+        )
+        self.pending.refresh_from_db()
+        self.assertEqual(self.pending.status, Crag.Status.NEEDS_CHANGES)
+
+    def test_staff_without_permission_gets_no_actions(self):
+        self.staff.user_permissions.add(
+            *__import__("django.contrib.auth.models", fromlist=["Permission"])
+            .Permission.objects.filter(codename__in=["view_crag", "change_crag"])
+        )
+        self.client.force_login(self.staff)
+        response = self.client.get(reverse("admin:crags_crag_changelist"))
+        self.assertNotContains(response, "Publish selected crags")
+
+
+class ReviewEmailTests(CragTestBase):
+    def test_publish_sends_mail_with_link(self):
+        self.pending.transition(Crag.Status.PUBLISHED, self.staff)
+        self.assertEqual(len(mail.outbox), 1)
+        message = mail.outbox[0]
+        self.assertEqual(message.to, ["alice@example.com"])
+        self.assertIn("Waiting", message.body)
+        self.assertIn(reverse("crags:detail", args=[self.pending.pk]), message.body)
+
+    def test_return_mail_contains_reason(self):
+        self.pending.transition(Crag.Status.NEEDS_CHANGES, self.staff, "Add a parking location.")
+        self.assertIn("Add a parking location.", mail.outbox[0].body)
+
+    def test_submit_and_reject_send_no_mail(self):
+        self.draft.transition(Crag.Status.PENDING, self.alice)
+        self.pending.transition(Crag.Status.REJECTED, self.staff)
+        self.assertEqual(len(mail.outbox), 0)
+
+    def test_mail_failure_does_not_block_transition(self):
+        with self.settings(EMAIL_BACKEND="crags.tests.BrokenBackend"):
+            with self.assertLogs("crags.notifications", level="ERROR"):
+                self.pending.transition(Crag.Status.PUBLISHED, self.staff)
+        self.pending.refresh_from_db()
+        self.assertEqual(self.pending.status, Crag.Status.PUBLISHED)
+
+
+from django.core.mail.backends.base import BaseEmailBackend
+
+
+class BrokenBackend(BaseEmailBackend):
+    def send_messages(self, email_messages):
+        raise RuntimeError("provider down")
+
+
+class ResubmitPublishedTests(CragTestBase):
+    def _submit(self, user):
+        self.client.force_login(user)
+        response = self.client.post(
+            reverse("crags:edit", args=[self.published.pk]),
+            form_data(self.area, name="Public", action="submit"),
+        )
+        self.published.refresh_from_db()
+        return response
+
+    def test_owner_submit_on_published_goes_pending(self):
+        self.assertEqual(self._submit(self.alice).status_code, 302)
+        self.assertEqual(self.published.status, Crag.Status.PENDING)
+        self.assertIsNotNone(self.published.submitted_at)
+
+    def test_staff_submit_on_published_goes_pending(self):
+        self.assertEqual(self._submit(self.staff).status_code, 302)
+        self.assertEqual(self.published.status, Crag.Status.PENDING)
+
+
+class ReturnPublishedTests(CragTestBase):
+    def test_published_crag_can_be_returned_with_reason(self):
+        self.published.transition(
+            Crag.Status.NEEDS_CHANGES, self.staff, "Parking info is outdated."
+        )
+        self.published.refresh_from_db()
+        self.assertEqual(self.published.status, Crag.Status.NEEDS_CHANGES)
+        self.assertEqual(self.published.review_reason, "Parking info is outdated.")
+        self.assertIn("Parking info is outdated.", mail.outbox[0].body)
+        url = reverse("crags:detail", args=[self.published.pk])
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, 404)
+        self.assertNotContains(response, "Parking info is outdated.", status_code=404)
+        self.client.force_login(self.alice)
+        self.assertContains(self.client.get(url), "Parking info is outdated.")
+
+    def test_published_return_still_needs_reason(self):
+        with self.assertRaises(ValidationError):
+            self.published.transition(Crag.Status.NEEDS_CHANGES, self.staff, "")
+
+
+class ReviewQueueAdminTests(CragTestBase):
+    def setUp(self):
+        self.root = User.objects.create_superuser("root", "r@example.com", "pw-root-123")
+        self.client.force_login(self.root)
+
+    def test_queue_lists_pending_oldest_first_with_photo_count(self):
+        from datetime import timedelta
+        from django.utils import timezone
+
+        now = timezone.now()
+        newer = Crag.objects.create(
+            name="Newer", area=self.area, created_by=self.alice,
+            status=Crag.Status.PENDING, submitted_at=now,
+        )
+        Crag.objects.filter(pk=self.pending.pk).update(submitted_at=now - timedelta(days=3))
+        Photo.objects.create(crag=newer, image="crags/x.webp")
+        Photo.objects.create(crag=newer, image="crags/y.webp")
+
+        response = self.client.get(reverse("admin:crags_crag_changelist"), {"queue": "pending"})
+
+        self.assertEqual(response.status_code, 200)
+        rows = list(response.context["cl"].result_list)
+        self.assertEqual([c.name for c in rows], ["Waiting", "Newer"])
+        self.assertEqual([c._photo_count for c in rows], [0, 2])
+        self.assertNotContains(response, "Draft entry")

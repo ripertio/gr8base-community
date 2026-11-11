@@ -24,7 +24,7 @@ We collect as little data as possible. There is no third-party tracking. Data is
 
 **Server logs.** Our hosting and network infrastructure temporarily records technical data such as IP address, time of request, requested page, and browser type. This is needed to operate and secure the site.
 
-**Emails.** We send account-related emails (for example sign-up confirmation or password reset) through the transactional email provider Resend.
+**Emails.** We send account-related emails (for example sign-up confirmation or password reset) through the transactional email provider Resend. If you submit a crag, we also email you when it is published or when the reviewers ask you for changes. The email contains the crag name, the outcome, the reviewers' reason (if any) and a link to the crag.
 
 ## 3. Purposes and legal bases
 
@@ -32,7 +32,7 @@ We collect as little data as possible. There is no third-party tracking. Data is
 |---|---|---|
 | Creating and operating your account | Account data, session data | Art. 6(1)(b) GDPR |
 | Publishing and managing crag entries and photos | Content, username | Art. 6(1)(b) GDPR |
-| Sending account emails | Email address | Art. 6(1)(b) GDPR |
+| Sending account emails and review notifications | Email address, crag name, review outcome | Art. 6(1)(b) GDPR |
 | Operating and securing the server | Server logs | Art. 6(1)(f) GDPR (legitimate interest in a stable and secure service) |
 | Complying with legal obligations | As required | Art. 6(1)(c) GDPR |
 

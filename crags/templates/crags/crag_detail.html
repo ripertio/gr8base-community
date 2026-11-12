@@ -21,7 +21,7 @@
     <p><mark>Status: {{ crag.get_status_display }}</mark></p>
 {% endif %}
 
-{% if can_edit or can_publish %}
+{% if can_edit or can_publish or can_return %}
     <div class="actions">
         {% if can_edit %}
             <a href="{% url 'crags:edit' crag.pk %}" role="button" class="outline">Edit</a>
@@ -32,7 +32,15 @@
                 <button type="submit">Publish</button>
             </form>
         {% endif %}
+        {% if can_return %}
+            <button type="button" class="outline secondary"
+                    onclick="document.getElementById('return-dialog').showModal()">Needs changes</button>
+        {% endif %}
     </div>
+{% endif %}
+{% if can_return %}
+    <form id="return-form" method="post" action="{% url 'crags:return' crag.pk %}">{% csrf_token %}</form>
+    {% include "crags/_return_dialog.html" with form_id="return-form" %}
 {% endif %}
 
 <a href="{% url 'crags:list' %}">

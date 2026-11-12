@@ -9,7 +9,7 @@
         <article><small>{{ note }}</small></article>
     {% endif %}
 
-    <form method="post" enctype="multipart/form-data">
+    <form id="crag-form" method="post" enctype="multipart/form-data">
         {% csrf_token %}
         {{ form.non_field_errors }}
         {% for field in form %}
@@ -90,6 +90,12 @@
                     Save and publish
                 </button>
             {% endif %}
+            {% if can_return %}
+                <button type="button" class="outline secondary"
+                        onclick="document.getElementById('return-dialog').showModal()">
+                    Needs changes
+                </button>
+            {% endif %}
             {% if can_remove %}
                 {# submits the separate form #remove-crag below (forms cannot be nested) #}
                 <button type="submit" form="remove-crag" class="outline secondary">
@@ -98,6 +104,7 @@
             {% endif %}
         </div>
     </form>
+    {% if can_return %}{% include "crags/_return_dialog.html" with form_id="crag-form" %}{% endif %}
 
     {% if crag %}
         {% for photo in crag.photos.all %}

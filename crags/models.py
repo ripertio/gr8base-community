@@ -213,11 +213,13 @@ class Crag(models.Model):
 
     # status -> statuses it may move to via transition()
     ALLOWED_TRANSITIONS = {
-        Status.DRAFT: {Status.PENDING, Status.REMOVED},
+        # DRAFT/NEEDS_CHANGES -> PUBLISHED: publishers skip the review step. Only code
+        # that checks crags.can_publish_crag (views, admin actions) asks for PUBLISHED.
+        Status.DRAFT: {Status.PENDING, Status.PUBLISHED, Status.REMOVED},
         Status.PENDING: {
             Status.PUBLISHED, Status.NEEDS_CHANGES, Status.REJECTED, Status.REMOVED,
         },
-        Status.NEEDS_CHANGES: {Status.PENDING, Status.REMOVED},
+        Status.NEEDS_CHANGES: {Status.PENDING, Status.PUBLISHED, Status.REMOVED},
         Status.PUBLISHED: {Status.PENDING, Status.NEEDS_CHANGES, Status.REMOVED},
         Status.REJECTED: {Status.REMOVED},
         # a restored crag starts again as a private draft
@@ -258,6 +260,10 @@ class Crag(models.Model):
             from .notifications import notify_submitter
 
             notify_submitter(self)
+        elif to == self.Status.PENDING:
+            from .notifications import notify_moderators
+
+            notify_moderators(self, actor)
 
     def clean(self):
         super().clean()

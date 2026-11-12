@@ -584,18 +584,27 @@ class PublishButtonTests(CragTestBase):
     def edit(self, crag):
         return reverse("crags:edit", args=[crag.pk])
 
-    def test_buttons_shown_to_publishers_for_pending_crags_only(self):
+    def test_buttons_shown_to_publishers_for_unpublished_crags_only(self):
+        needs = Crag.objects.create(
+            name="Needs work", area=self.area, created_by=self.alice,
+            status=Crag.Status.NEEDS_CHANGES,
+        )
+        rejected = Crag.objects.create(
+            name="Nope", area=self.area, created_by=self.alice, status=Crag.Status.REJECTED
+        )
         root = User.objects.create_superuser("root", "r@example.com", "pw")
         for user in (self.manager(), root):
             self.client.force_login(user)
-            for url in (self.detail(self.pending), self.edit(self.pending)):
-                self.assertContains(self.client.get(url), "ublish")
-            self.assertContains(
-                self.client.get(self.detail(self.pending)), reverse("crags:publish", args=[self.pending.pk])
-            )
-            for crag in (self.draft, self.published):
-                self.assertNotContains(self.client.get(self.detail(crag)), "crags/%d/publish" % crag.pk)
-                self.assertNotContains(self.client.get(self.edit(crag)), "Save and publish")
+            for crag in (self.draft, self.pending, needs):
+                publish_url = reverse("crags:publish", args=[crag.pk])
+                self.assertContains(self.client.get(self.detail(crag)), publish_url)
+                self.assertContains(self.client.get(self.edit(crag)), "Save and publish")
+            for crag in (self.published, rejected):
+                publish_url = reverse("crags:publish", args=[crag.pk])
+                self.assertNotContains(self.client.get(self.detail(crag)), publish_url)
+            # the edit page of a published crag lets a publisher save it as published
+            self.assertContains(self.client.get(self.edit(self.published)), "Save and publish")
+            self.assertNotContains(self.client.get(self.edit(rejected)), "Save and publish")
 
     def test_buttons_hidden_for_plain_staff_and_owner(self):
         for user in (self.staff, self.alice):
@@ -620,11 +629,44 @@ class PublishButtonTests(CragTestBase):
         self.pending.refresh_from_db()
         self.assertEqual(self.pending.status, Crag.Status.PENDING)
 
-    def test_publish_of_a_draft_is_refused(self):
+    def test_publisher_can_publish_a_draft_and_needs_changes_directly(self):
+        needs = Crag.objects.create(
+            name="Needs work", area=self.area, created_by=self.alice,
+            status=Crag.Status.NEEDS_CHANGES, review_reason="Add a parking location.",
+        )
         self.client.force_login(self.manager())
-        self.client.post(reverse("crags:publish", args=[self.draft.pk]))
+        for crag in (self.draft, needs):
+            self.client.post(reverse("crags:publish", args=[crag.pk]))
+            crag.refresh_from_db()
+            self.assertEqual(crag.status, Crag.Status.PUBLISHED)
+            self.assertEqual(crag.review_reason, "")
+
+    def test_rejected_and_published_crags_cannot_be_published(self):
+        rejected = Crag.objects.create(
+            name="Nope", area=self.area, created_by=self.alice, status=Crag.Status.REJECTED
+        )
+        self.client.force_login(self.manager())
+        for crag in (rejected, self.published):
+            before = crag.status
+            self.client.post(reverse("crags:publish", args=[crag.pk]))
+            crag.refresh_from_db()
+            self.assertEqual(crag.status, before)
+
+    def test_owner_still_cannot_publish_a_draft(self):
+        self.client.force_login(self.alice)
+        self.assertEqual(
+            self.client.post(reverse("crags:publish", args=[self.draft.pk])).status_code, 403
+        )
+
+    def test_save_and_publish_from_edit_page_of_a_draft(self):
+        self.client.force_login(self.manager())
+        self.client.post(
+            self.edit(self.draft), form_data(self.area, name="Straight up", action="publish")
+        )
         self.draft.refresh_from_db()
-        self.assertEqual(self.draft.status, Crag.Status.DRAFT)
+        self.assertEqual(
+            (self.draft.name, self.draft.status), ("Straight up", Crag.Status.PUBLISHED)
+        )
 
     def test_save_and_publish_from_edit_page(self):
         self.client.force_login(self.manager())
@@ -636,12 +678,199 @@ class PublishButtonTests(CragTestBase):
         self.pending.refresh_from_db()
         self.assertEqual((self.pending.name, self.pending.status), ("Polished", Crag.Status.PUBLISHED))
 
+    def test_save_and_publish_on_a_published_crag_keeps_it_published(self):
+        self.client.force_login(self.manager())
+        resp = self.client.post(
+            self.edit(self.published),
+            form_data(self.area, name="Small fix", action="publish"),
+        )
+        self.assertEqual(resp.status_code, 302)
+        self.published.refresh_from_db()
+        self.assertEqual(
+            (self.published.name, self.published.status), ("Small fix", Crag.Status.PUBLISHED)
+        )
+
     def test_save_and_publish_forbidden_for_plain_staff(self):
         self.client.force_login(self.staff)
         resp = self.client.post(
             self.edit(self.pending), form_data(self.area, name="X", action="publish")
         )
         self.assertEqual(resp.status_code, 403)
+
+
+class ModeratorMailTests(CragTestBase):
+    def setUp(self):
+        group = Group.objects.get(name="Crag Managers")
+        self.manager = User.objects.create_user("mgr", "mgr@example.com", "pw", is_staff=True)
+        self.manager.groups.add(group)
+        self.root = User.objects.create_superuser("root", "root@example.com", "pw")
+        self.no_mail = User.objects.create_user("nomail", "", "pw", is_staff=True)
+        self.no_mail.groups.add(group)
+        self.inactive = User.objects.create_user(
+            "off", "off@example.com", "pw", is_staff=True, is_active=False
+        )
+        self.inactive.groups.add(group)
+        mail.outbox.clear()
+
+    def submit(self, user):
+        self.client.force_login(user)
+        return self.client.post(
+            reverse("crags:edit", args=[self.draft.pk]),
+            form_data(self.area, name="Draft entry", action="submit"),
+        )
+
+    def test_submission_mails_each_moderator_separately_with_link(self):
+        self.submit(self.alice)
+        self.draft.refresh_from_db()
+        self.assertEqual(self.draft.status, Crag.Status.PENDING)
+        recipients = sorted(m.to[0] for m in mail.outbox)
+        self.assertEqual(recipients, ["mgr@example.com", "root@example.com"])
+        self.assertTrue(all(len(m.to) == 1 for m in mail.outbox))
+        body = mail.outbox[0].body
+        self.assertIn("/moderation/", body)
+        self.assertIn("Draft entry", mail.outbox[0].subject)
+
+    def test_plain_staff_and_the_submitter_are_not_mailed(self):
+        self.submit(self.manager)  # a moderator submitting does not mail themself
+        self.assertEqual(sorted(m.to[0] for m in mail.outbox), ["root@example.com"])
+        self.assertNotIn(self.staff.email, [m.to[0] for m in mail.outbox])
+
+    def test_editing_a_published_crag_mails_moderators_again(self):
+        self.client.force_login(self.alice)
+        self.client.post(
+            reverse("crags:edit", args=[self.published.pk]),
+            form_data(self.area, name="Changed"),
+        )
+        self.assertEqual(len(mail.outbox), 2)
+
+    def test_mail_failure_does_not_break_submission(self):
+        with self.settings(EMAIL_BACKEND="nonexistent.backend.Backend"):
+            with self.assertLogs("crags.notifications", "ERROR"):
+                response = self.submit(self.alice)
+        self.assertEqual(response.status_code, 302)
+        self.draft.refresh_from_db()
+        self.assertEqual(self.draft.status, Crag.Status.PENDING)
+
+
+class CreatePublishTests(CragTestBase):
+    def manager(self):
+        user = User.objects.create_user("mgr", "m@example.com", "pw", is_staff=True)
+        user.groups.add(Group.objects.get(name="Crag Managers"))
+        return user
+
+    def test_publisher_sees_save_and_publish_on_the_create_page(self):
+        self.client.force_login(self.manager())
+        self.assertContains(self.client.get(reverse("crags:create")), "Save and publish")
+        self.client.force_login(self.alice)
+        self.assertNotContains(self.client.get(reverse("crags:create")), "Save and publish")
+
+    def test_publisher_can_create_a_crag_as_published(self):
+        manager = self.manager()
+        self.client.force_login(manager)
+        self.client.post(
+            reverse("crags:create"), form_data(self.area, name="Straight to live", action="publish")
+        )
+        crag = Crag.objects.get(name="Straight to live")
+        self.assertEqual((crag.status, crag.created_by), (Crag.Status.PUBLISHED, manager))
+
+    def test_regular_user_cannot_create_as_published(self):
+        self.client.force_login(self.alice)
+        resp = self.client.post(
+            reverse("crags:create"), form_data(self.area, name="Sneaky", action="publish")
+        )
+        self.assertEqual(resp.status_code, 403)
+        self.assertFalse(Crag.objects.filter(name="Sneaky").exists())
+
+
+class ReturnButtonTests(CragTestBase):
+    def manager(self):
+        user = User.objects.create_user("mgr", "m@example.com", "pw", is_staff=True)
+        user.groups.add(Group.objects.get(name="Crag Managers"))
+        return user
+
+    def detail(self, crag):
+        return reverse("crags:detail", args=[crag.pk])
+
+    def edit(self, crag):
+        return reverse("crags:edit", args=[crag.pk])
+
+    def test_button_and_dialog_for_publishers_on_pending_and_published_only(self):
+        self.client.force_login(self.manager())
+        for crag in (self.pending, self.published):
+            for url in (self.detail(crag), self.edit(crag)):
+                resp = self.client.get(url)
+                self.assertContains(resp, 'id="return-dialog"')
+                self.assertContains(resp, "Needs changes")
+        for url in (self.detail(self.draft), self.edit(self.draft)):
+            self.assertNotContains(self.client.get(url), 'id="return-dialog"')
+
+    def test_button_hidden_for_plain_staff_and_owner(self):
+        for user in (self.staff, self.alice):
+            self.client.force_login(user)
+            self.assertNotContains(self.client.get(self.detail(self.pending)), 'id="return-dialog"')
+            self.assertNotContains(self.client.get(self.edit(self.pending)), 'id="return-dialog"')
+
+    def test_return_from_detail_stores_reason_and_mails_submitter(self):
+        self.client.force_login(self.manager())
+        mail.outbox.clear()
+        self.client.post(
+            reverse("crags:return", args=[self.pending.pk]),
+            {"reason": "Please add the parking location."},
+        )
+        self.pending.refresh_from_db()
+        self.assertEqual(self.pending.status, Crag.Status.NEEDS_CHANGES)
+        self.assertEqual(self.pending.review_reason, "Please add the parking location.")
+        self.assertEqual([m.to for m in mail.outbox], [["alice@example.com"]])
+
+    def test_short_reason_is_refused(self):
+        self.client.force_login(self.manager())
+        self.client.post(reverse("crags:return", args=[self.pending.pk]), {"reason": "short"})
+        self.pending.refresh_from_db()
+        self.assertEqual(self.pending.status, Crag.Status.PENDING)
+
+    def test_return_requires_permission(self):
+        for user in (self.staff, self.alice):
+            self.client.force_login(user)
+            resp = self.client.post(
+                reverse("crags:return", args=[self.pending.pk]),
+                {"reason": "Please add the parking location."},
+            )
+            self.assertEqual(resp.status_code, 403)
+
+    def test_return_from_edit_page_saves_changes_too(self):
+        self.client.force_login(self.manager())
+        self.client.post(
+            self.edit(self.pending),
+            form_data(
+                self.area, name="Fixed typo", action="return",
+                reason="Please add the parking location.",
+            ),
+        )
+        self.pending.refresh_from_db()
+        self.assertEqual(
+            (self.pending.name, self.pending.status),
+            ("Fixed typo", Crag.Status.NEEDS_CHANGES),
+        )
+
+    def test_return_from_edit_page_with_short_reason_saves_nothing(self):
+        self.client.force_login(self.manager())
+        resp = self.client.post(
+            self.edit(self.pending),
+            form_data(self.area, name="Should not stick", action="return", reason="no"),
+        )
+        self.assertEqual(resp.status_code, 200)
+        self.pending.refresh_from_db()
+        self.assertEqual(self.pending.status, Crag.Status.PENDING)
+        self.assertNotEqual(self.pending.name, "Should not stick")
+
+    def test_published_crag_can_be_returned(self):
+        self.client.force_login(self.manager())
+        self.client.post(
+            reverse("crags:return", args=[self.published.pk]),
+            {"reason": "Parking info is outdated."},
+        )
+        self.published.refresh_from_db()
+        self.assertEqual(self.published.status, Crag.Status.NEEDS_CHANGES)
 
 
 class EditPermissionTests(CragTestBase):

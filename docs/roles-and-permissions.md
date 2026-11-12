@@ -25,7 +25,8 @@ A Crag Manager is therefore not a separate account type, but staff plus a group.
 | Add and edit crags, areas, guidebooks | no | yes | yes |
 | Delete areas and guidebooks | no | yes | yes |
 | Publish, return or reject crags | no | yes | yes |
-| "Publish" button on the crag page and "Save and publish" on the edit page (pending crags only) | no | yes | yes |
+| "Publish" button on the crag page and "Save and publish" on the edit page (any crag that is not published or rejected; no need to submit it first) | no | yes | yes |
+| "Needs changes" button with reason popup (pending or published crags) | no | yes | yes |
 | Hard delete crags | no | no | yes |
 | Restore removed crags | no | no | yes |
 | Change a crag to any status (see below) | no | no | yes |
@@ -47,9 +48,13 @@ Regular users can see all published and pending crags and their own crags in any
 
 ## Changing status as superuser
 
-Normally a crag follows the review flow (`Crag.ALLOWED_TRANSITIONS`): for example, a draft can only be submitted, and a rejected crag has no way forward. Superusers can override this in the admin: select crags in the list, run **"Change status (superuser: any status to any status)"**, pick the target status (and a reason, which is required for "Needs changes"). Examples: Removed → Published, Needs changes → Published, Rejected → Pending review.
+Normally a crag follows the review flow (`Crag.ALLOWED_TRANSITIONS`): for example, a draft can only be submitted (publishers may also publish it directly), and a rejected crag has no way forward. Superusers can override this in the admin: select crags in the list, run **"Change status (superuser: any status to any status)"**, pick the target status (and a reason, which is required for "Needs changes"). Examples: Removed → Published, Needs changes → Published, Rejected → Pending review.
 
 The override still goes through `Crag.transition(..., force=True)`, so the audit fields (`reviewed_by`, `reviewed_at`, `submitted_at`) are set as for a normal change and the submitter gets the usual email when a crag is published or returned. It only skips the table of allowed moves. Choosing the status a crag already has is refused. Crag Managers do not get this action.
+
+## Moderator notification
+
+When a crag is submitted for review (also when a published crag is edited and goes back to pending), everyone with the publish permission gets an email with the crag name, area, submitter and a link to the moderation page (`/moderation/`). Recipients are active superusers and Crag Managers (or anyone with `crags.can_publish_crag`) who have an email address, except the person who submitted. Everyone gets their own message. Sending never blocks the submission; failures are only logged. There is no daily digest.
 
 ## Where it is implemented
 
@@ -59,5 +64,7 @@ The override still goes through `Crag.transition(..., force=True)`, so the audit
 | Custom permissions `can_publish_crag`, `can_remove_crag` | `Crag.Meta.permissions` in `crags/models.py` |
 | Hiding removed crags | default manager `Crag.objects` in `crags/models.py` |
 | Edit and remove rules on the public site | `editable_crags`, `removable_crags` in `crags/views.py` |
+| Moderator notification email | `notify_moderators` in `crags/notifications.py`, called from `Crag.transition` |
+| Moderation page | `crags/moderation.py` |
 | Admin actions (publish, return, reject, restore, change status) | `CragAdmin` in `crags/admin.py` |
 | Private profiles | `profile_detail` in `accounts/views.py` |

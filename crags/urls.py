@@ -11,6 +11,7 @@ urlpatterns = [
     path("<int:pk>/", views.crag_detail, name="detail"),
     path("<int:pk>/edit/", views.crag_edit, name="edit"),
     path("<int:pk>/publish/", views.crag_publish, name="publish"),
+    path("<int:pk>/return/", views.crag_return, name="return"),
     path("<int:pk>/delete/", views.crag_delete, name="delete"),
     path("<int:pk>/rate/", views.crag_rate, name="rate"),
     path("<int:pk>/comments/add/", views.comment_add, name="comment_add"),

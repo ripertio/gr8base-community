@@ -1529,6 +1529,18 @@ class PhotoThumbnailTests(CragTestBase):
         self.assertTrue(os.path.exists(photo.thumbnail.path))
         self.assertIn("Created 1 thumbnail(s), 0 failed.", out.getvalue())
 
+    def test_insert_without_thumbnail_column_works(self):
+        # Code from before thumbnails (old version during a deploy, or after a
+        # code-only rollback) inserts photos without naming the column.
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "INSERT INTO crags_photo (crag_id, image, category, caption, created_at)"
+                " VALUES (%s, 'crags/old.webp', 'CRAG', '', NOW()) RETURNING id",
+                [self.published.pk],
+            )
+            pk = cursor.fetchone()[0]
+        self.assertEqual(Photo.objects.get(pk=pk).thumbnail.name, "")
+
     def test_unreadable_image_does_not_break_save(self):
         photo = self._photo()
         os.remove(photo.image.path)

@@ -343,8 +343,11 @@ class Photo(models.Model):
 
     # Small copy for cards and grids (generated on save), so pages don't load
     # the full-size image just to show a 220px preview.
+    # db_default: code that doesn't know this column (the old version during a
+    # deploy, or after a code-only rollback) can still insert photos.
     thumbnail = models.ImageField(
-        upload_to=photo_thumbnail_upload_path, blank=True, editable=False
+        upload_to=photo_thumbnail_upload_path, blank=True, editable=False,
+        default="", db_default="",
     )
 
     created_at = models.DateTimeField(auto_now_add=True)

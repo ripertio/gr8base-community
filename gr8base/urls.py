@@ -11,6 +11,7 @@ urlpatterns = [
     path("", crag_list, name="home"),
     path("", include("accounts.urls")),
     path("crags/", include("crags.urls")),
+    path("moderation/", include("crags.moderation_urls")),
     path("stats/", include("stats.urls")),
     path("docs/", doc_index, name="docs"),
     path("docs/<slug:slug>/", doc_page, name="doc_page"),

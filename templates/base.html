@@ -61,8 +61,8 @@
                 {% if user.is_authenticated %}
                     <li><a href="{% url 'crags:mine' %}">My crags</a></li>
                     <li><a href="{% url 'crags:create' %}">Add a crag</a></li>
-                    {% if user.is_staff %}
-                        <li><a href="{% url 'admin:index' %}">Admin</a></li>
+                    {% if user.is_staff or perms.crags.can_publish_crag %}
+                        <li><a href="{% url 'moderation:queue' %}">Moderation</a></li>
                     {% endif %}
                     <li><a href="{% url 'profiles:detail' user.username %}">{{ user.username }}</a></li>
                     <li>

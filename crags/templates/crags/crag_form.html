@@ -9,7 +9,7 @@
         <article><small>{{ note }}</small></article>
     {% endif %}
 
-    <form method="post" enctype="multipart/form-data">
+    <form id="crag-form" method="post" enctype="multipart/form-data">
         {% csrf_token %}
         {{ form.non_field_errors }}
         {% for field in form %}
@@ -78,15 +78,35 @@
             </fieldset>
         {% endif %}
 
-        <div class="grid">
-            <button type="submit" name="action" value="draft" class="secondary">
-                Save as draft
-            </button>
-            <button type="submit" name="action" value="submit">
-                Submit for review
-            </button>
+        <div class="actions">
+            {% if not hide_draft_and_submit %}
+                <button type="submit" name="action" value="draft" class="secondary">
+                    Save as draft
+                </button>
+                <button type="submit" name="action" value="submit">
+                    Submit for review
+                </button>
+            {% endif %}
+            {% if can_publish %}
+                <button type="submit" name="action" value="publish">
+                    Save and publish
+                </button>
+            {% endif %}
+            {% if can_return %}
+                <button type="button" class="outline secondary"
+                        onclick="document.getElementById('return-dialog').showModal()">
+                    Needs changes
+                </button>
+            {% endif %}
+            {% if can_remove %}
+                {# submits the separate form #remove-crag below (forms cannot be nested) #}
+                <button type="submit" form="remove-crag" class="outline secondary">
+                    Remove crag
+                </button>
+            {% endif %}
         </div>
     </form>
+    {% if can_return %}{% include "crags/_return_dialog.html" with form_id="crag-form" %}{% endif %}
 
     {% if crag %}
         {% for photo in crag.photos.all %}
@@ -97,11 +117,12 @@
                 <input type="hidden" name="next" value="edit">
             </form>
         {% endfor %}
-        <form method="post"
-              action="{% url 'crags:delete' crag.pk %}"
-              onsubmit="return confirm('Really delete this crag and all its photos? This cannot be undone.')">
-            {% csrf_token %}
-            <button type="submit" class="outline secondary">Delete crag</button>
-        </form>
+        {% if can_remove %}
+            <form id="remove-crag" method="post"
+                  action="{% url 'crags:delete' crag.pk %}"
+                  onsubmit="return confirm('Really remove this crag? It will no longer be visible.')">
+                {% csrf_token %}
+            </form>
+        {% endif %}
     {% endif %}
 {% endblock %}

@@ -16,12 +16,13 @@ The project is open source and everyone is welcome to help:
 - Documentation pages written in Markdown (`content/`, served under `/docs/`), including terms, privacy and impressum
 
 **For registered users** (django-allauth, e-mail verification, password reset)
-- Create crags, edit and delete their own, upload photos with a category
+- Create crags, edit and remove their own, upload photos with a category
 - Save as draft and submit for review; a "my crags" overview
 
-**For staff**
-- Review submissions in the Django admin (publish or reject), correct data, manage areas, features and users
+**For staff, Crag Managers and superusers**
+- Review submissions in the Django admin (publish, return or reject), correct data, manage areas and guidebooks; remove crags (superusers can restore or permanently delete them and manage users)
 - `/stats/`: charts of registered users and crags over time
+- Who may do what: [docs/roles-and-permissions.md](docs/roles-and-permissions.md)
 
 **Photos** are validated and processed on upload: max. 15 MB, EXIF rotation applied, resized to 1,600 px, re-encoded as WebP; HEIC/HEIF is supported. Details in [docs/technical-stack.md](docs/technical-stack.md).
 
@@ -88,7 +89,7 @@ Application logs go to stdout (`docker compose logs -f web`) and to the gitignor
 | `scripts/` | Dev start, backup, restore, deploy |
 | `logs/` | Application, Gunicorn and backup logs (created at runtime, not in git) |
 | `data-dev/` | Sample dump and media for development |
-| `docs/` | Crag data model and technical notes |
+| `docs/` | Crag data model, roles and permissions, technical notes |
 
 ## Principles
 

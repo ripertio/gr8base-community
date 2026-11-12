@@ -1,7 +1,7 @@
 from django import forms
 from django.contrib import admin, messages
 from django.contrib.admin import helpers
-from django.core.exceptions import ValidationError
+from django.core.exceptions import PermissionDenied, ValidationError
 from django.core.files.uploadedfile import UploadedFile
 
 from django.db.models import Count
@@ -54,6 +54,31 @@ class ReturnToSubmitterForm(forms.Form):
     )
 
 
+class ChangeStatusForm(forms.Form):
+    status = forms.ChoiceField(choices=Crag.Status.choices)
+    reason = forms.CharField(
+        required=False,
+        widget=forms.Textarea(attrs={"rows": 3}),
+        help_text=(
+            f"Required (at least {Crag.MIN_REASON_LENGTH} characters) for "
+            "\u201cNeeds changes\u201d; shown to the submitter."
+        ),
+    )
+
+    def clean(self):
+        data = super().clean()
+        reason = (data.get("reason") or "").strip()
+        if (
+            data.get("status") == Crag.Status.NEEDS_CHANGES
+            and len(reason) < Crag.MIN_REASON_LENGTH
+        ):
+            self.add_error(
+                "reason",
+                f"A reason of at least {Crag.MIN_REASON_LENGTH} characters is required.",
+            )
+        return data
+
+
 class ReviewQueueFilter(admin.SimpleListFilter):
     title = "review queue"
     parameter_name = "queue"
@@ -75,12 +100,17 @@ class CragAdmin(admin.ModelAdmin):
     )
     list_filter = (ReviewQueueFilter, "status", "area")
     search_fields = ("name",)
-    actions = ["publish", "return_to_submitter", "reject"]
+    actions = ["publish", "return_to_submitter", "reject", "restore", "change_status"]
     # Status changes go through the actions (Crag.transition) only.
     readonly_fields = ("status", "submitted_at", "reviewed_by", "reviewed_at", "review_reason")
 
     def get_queryset(self, request):
-        return super().get_queryset(request).annotate(_photo_count=Count("photos"))
+        # all_objects: the default manager hides removed crags.
+        qs = Crag.all_objects.all()
+        ordering = self.get_ordering(request)
+        if ordering:
+            qs = qs.order_by(*ordering)
+        return qs.annotate(_photo_count=Count("photos"))
 
     def get_ordering(self, request):
         if request.GET.get("queue") == "pending":
@@ -94,7 +124,13 @@ class CragAdmin(admin.ModelAdmin):
     def get_actions(self, request):
         actions = super().get_actions(request)
         if not request.user.has_perm("crags.can_publish_crag"):
-            return {}
+            for name in ("publish", "return_to_submitter", "reject"):
+                actions.pop(name, None)
+        # Restoring removed crags goes with hard delete: superusers only.
+        if not request.user.has_perm("crags.delete_crag"):
+            actions.pop("restore", None)
+        if not request.user.is_superuser:
+            actions.pop("change_status", None)
         return actions
 
     def save_model(self, request, obj, form, change):
@@ -102,11 +138,11 @@ class CragAdmin(admin.ModelAdmin):
             obj.created_by = request.user
         super().save_model(request, obj, form, change)
 
-    def _transition_each(self, request, queryset, to, reason=""):
+    def _transition_each(self, request, queryset, to, reason="", force=False):
         done = 0
         for crag in queryset:
             try:
-                crag.transition(to, request.user, reason)
+                crag.transition(to, request.user, reason, force=force)
             except (InvalidTransition, ValidationError) as exc:
                 msg = exc.messages[0] if hasattr(exc, "messages") else str(exc)
                 self.message_user(request, f"{crag}: {msg}", messages.ERROR)
@@ -138,6 +174,41 @@ class CragAdmin(admin.ModelAdmin):
             {
                 **self.admin_site.each_context(request),
                 "title": "Return to submitter",
+                "opts": self.model._meta,
+                "crags": queryset,
+                "form": form,
+                "action_checkbox_name": helpers.ACTION_CHECKBOX_NAME,
+            },
+        )
+
+    @admin.action(description="Restore removed crags")
+    def restore(self, request, queryset):
+        done = self._transition_each(
+            request, queryset.filter(status=Crag.Status.REMOVED), Crag.Status.DRAFT
+        )
+        self.message_user(request, f"Restored {done} crag(s) as drafts.")
+
+    @admin.action(description="Change status (superuser: any status to any status)")
+    def change_status(self, request, queryset):
+        if not request.user.is_superuser:
+            raise PermissionDenied
+        if "apply" in request.POST:
+            form = ChangeStatusForm(request.POST)
+            if form.is_valid():
+                done = self._transition_each(
+                    request, queryset, form.cleaned_data["status"],
+                    form.cleaned_data["reason"], force=True,
+                )
+                self.message_user(request, f"Changed the status of {done} crag(s).")
+                return None
+        else:
+            form = ChangeStatusForm()
+        return TemplateResponse(
+            request,
+            "admin/crags/change_status.html",
+            {
+                **self.admin_site.each_context(request),
+                "title": "Change status",
                 "opts": self.model._meta,
                 "crags": queryset,
                 "form": form,

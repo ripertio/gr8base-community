@@ -22,10 +22,10 @@
                 <form method="post"
                       action="{% url 'crags:delete' crag.pk %}"
                       style="display: inline"
-                      onsubmit="return confirm('Really delete this crag and all its photos? This cannot be undone.')">
+                      onsubmit="return confirm('Really remove this crag? It will no longer be visible.')">
                     {% csrf_token %}
                     <button type="submit"
-                            style="display: inline; width: auto; margin: 0; padding: 0; border: 0; background: none; color: var(--pico-primary); text-decoration: underline; cursor: pointer">Delete</button>
+                            style="display: inline; width: auto; margin: 0; padding: 0; border: 0; background: none; color: var(--pico-primary); text-decoration: underline; cursor: pointer">Remove</button>
                 </form>
             </footer>
         </article>

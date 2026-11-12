@@ -12,7 +12,7 @@ from .forms import ProfileForm
 def profile_detail(request, username):
     profile_user = get_object_or_404(get_user_model(), username=username)
     is_owner = request.user == profile_user
-    if not (profile_user.profile_public or is_owner or request.user.is_staff):
+    if not (profile_user.profile_public or is_owner or request.user.is_superuser):
         raise Http404
     crags = (
         Crag.objects.filter(created_by=profile_user)

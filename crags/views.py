@@ -9,12 +9,45 @@ from django.urls import reverse
 from django.views.decorators.http import require_POST
 
 from .forms import BulkPhotoForm, CragForm, process_image
-from .models import Area, Crag, CragComment, CragRating, Feature, Photo
+from .models import Area, Crag, CragComment, CragRating, Feature, InvalidTransition, Photo
 
 logger = logging.getLogger(__name__)
 
 MAX_PHOTOS_PER_CRAG = 8
 MAX_FILES_PER_UPLOAD = 8
+
+PUBLISH_PERM = "crags.can_publish_crag"
+
+
+def can_publish_now(user, crag):
+    """Publish buttons: the user may publish and the crag is not published yet."""
+    return (
+        user.has_perm(PUBLISH_PERM)
+        and Crag.Status.PUBLISHED in crag.ALLOWED_TRANSITIONS[crag.status]
+    )
+
+
+def can_return_now(user, crag):
+    """"Needs changes" button: the user may publish/return and the move is allowed."""
+    return (
+        user.has_perm(PUBLISH_PERM)
+        and Crag.Status.NEEDS_CHANGES in crag.ALLOWED_TRANSITIONS[crag.status]
+    )
+
+
+def can_reject_now(user, crag):
+    """"Reject" button: the user may publish/return/reject and the move is allowed."""
+    return (
+        user.has_perm(PUBLISH_PERM)
+        and Crag.Status.REJECTED in crag.ALLOWED_TRANSITIONS[crag.status]
+    )
+
+
+def reason_error(reason):
+    if len((reason or "").strip()) < Crag.MIN_REASON_LENGTH:
+        return f"Please give a reason of at least {Crag.MIN_REASON_LENGTH} characters."
+    return None
+
 
 def visible_crags(user):
     """Who may SEE which crags."""
@@ -29,6 +62,13 @@ def visible_crags(user):
 def editable_crags(user):
     """Who may CHANGE which crags."""
     if user.is_staff:
+        return Crag.objects.all()
+    return Crag.objects.filter(created_by=user)
+
+
+def removable_crags(user):
+    """Who may REMOVE (soft-delete) which crags: owners and users with the permission."""
+    if user.has_perm("crags.can_remove_crag"):
         return Crag.objects.all()
     return Crag.objects.filter(created_by=user)
 
@@ -203,6 +243,10 @@ def crag_detail(request, pk):
         {
             "crag": crag,
             "can_edit": can_edit,
+            "can_publish": can_publish_now(request.user, crag),
+            "can_return": can_return_now(request.user, crag),
+            "can_reject": can_reject_now(request.user, crag),
+            "min_reason_length": Crag.MIN_REASON_LENGTH,
             "community": community,
             "can_rate": can_rate,
             "my_rating": my_rating,
@@ -295,7 +339,11 @@ def crag_mine(request):
 
 @login_required
 def crag_create(request):
+    can_publish = request.user.has_perm(PUBLISH_PERM)
     if request.method == "POST":
+        publish = request.POST.get("action") == "publish"
+        if publish and not can_publish:
+            raise PermissionDenied
         form = CragForm(request.POST, request.FILES)
         photo_form = BulkPhotoForm(request.POST)
         uploads = request.FILES.getlist("images")
@@ -325,7 +373,10 @@ def crag_create(request):
                 crag.status = Crag.Status.DRAFT
                 crag.save()
                 form.save_m2m()
-                if request.POST.get("action") == "submit":
+                if publish:
+                    crag.transition(Crag.Status.PUBLISHED, request.user)
+                    messages.success(request, "Crag published.")
+                elif request.POST.get("action") == "submit":
                     crag.transition(Crag.Status.PENDING, request.user)
                     messages.success(request, "Submitted. We will review this crag.")
                 else:
@@ -362,6 +413,7 @@ def crag_create(request):
             "max_files": MAX_FILES_PER_UPLOAD,
             "title": "Add a new crag",
             "note": "",
+            "can_publish": can_publish,
         },
     )
 
@@ -372,6 +424,10 @@ def crag_edit(request, pk):
     existing = crag.photos.count()
 
     if request.method == "POST":
+        publish = request.POST.get("action") == "publish"
+        returning = request.POST.get("action") == "return"
+        if (publish or returning) and not request.user.has_perm(PUBLISH_PERM):
+            raise PermissionDenied
         form = CragForm(request.POST, request.FILES, instance=crag)
         photo_form = BulkPhotoForm(request.POST)
         uploads = request.FILES.getlist("images")
@@ -379,7 +435,10 @@ def crag_edit(request, pk):
         if form.is_valid():
             converted = []
             uploads_valid = True
-            if len(uploads) > MAX_FILES_PER_UPLOAD:
+            if returning and reason_error(request.POST.get("reason")):
+                uploads_valid = False
+                form.add_error(None, reason_error(request.POST.get("reason")))
+            elif len(uploads) > MAX_FILES_PER_UPLOAD:
                 uploads_valid = False
                 form.add_error(
                     None, f"Select no more than {MAX_FILES_PER_UPLOAD} images at a time."
@@ -408,14 +467,31 @@ def crag_edit(request, pk):
                 form.save_m2m()
                 resubmit = (
                     request.POST.get("action") == "submit"
-                    # any change to a published crag needs a new review
+                    # any change to a published crag needs a new review,
+                    # unless the editor may publish it themselves
                     or (
                         crag.status == Crag.Status.PUBLISHED
-                        and not request.user.is_staff
+                        and not request.user.has_perm("crags.can_publish_crag")
                     )
                 )
                 if resubmit and Crag.Status.PENDING in crag.ALLOWED_TRANSITIONS[crag.status]:
                     crag.transition(Crag.Status.PENDING, request.user)
+                if publish and crag.status != Crag.Status.PUBLISHED:
+                    try:
+                        crag.transition(Crag.Status.PUBLISHED, request.user)
+                    except (InvalidTransition, ValidationError) as exc:
+                        messages.error(request, f"Saved, but not published: {exc.messages[0]}")
+                    else:
+                        messages.success(request, "Crag published.")
+                if returning:
+                    try:
+                        crag.transition(
+                            Crag.Status.NEEDS_CHANGES, request.user, request.POST.get("reason")
+                        )
+                    except (InvalidTransition, ValidationError) as exc:
+                        messages.error(request, f"Saved, but not returned: {exc.messages[0]}")
+                    else:
+                        messages.success(request, "Sent back to the submitter.")
                 for content in converted:
                     Photo.objects.create(
                         crag=crag,
@@ -440,7 +516,9 @@ def crag_edit(request, pk):
         photo_form = BulkPhotoForm()
 
     note = ""
-    if crag.status == Crag.Status.PUBLISHED and not request.user.is_staff:
+    if crag.status == Crag.Status.PUBLISHED and not request.user.has_perm(
+        "crags.can_publish_crag"
+    ):
         note = "Changes to published crags will be reviewed again."
 
     return render(
@@ -454,6 +532,19 @@ def crag_edit(request, pk):
             "crag": crag,
             "title": f"{crag.name} bearbeiten",
             "note": note,
+            # on the edit page a publisher may also save an already published crag as is
+            "can_publish": can_publish_now(request.user, crag)
+            or (
+                request.user.has_perm(PUBLISH_PERM)
+                and crag.status == Crag.Status.PUBLISHED
+            ),
+            "can_return": can_return_now(request.user, crag),
+            "min_reason_length": Crag.MIN_REASON_LENGTH,
+            # publishers editing a published crag only need "Save and publish":
+            # "Submit for review" would take the crag offline again
+            "hide_draft_and_submit": request.user.has_perm(PUBLISH_PERM)
+            and crag.status == Crag.Status.PUBLISHED,
+            "can_remove": removable_crags(request.user).filter(pk=crag.pk).exists(),
         },
     )
 
@@ -521,15 +612,67 @@ def photo_add(request, pk):
 
 @login_required
 @require_POST
+def crag_publish(request, pk):
+    if not request.user.has_perm(PUBLISH_PERM):
+        raise PermissionDenied
+    crag = get_object_or_404(Crag, pk=pk)
+    try:
+        crag.transition(Crag.Status.PUBLISHED, request.user)
+    except (InvalidTransition, ValidationError) as exc:
+        messages.error(request, exc.messages[0] if hasattr(exc, "messages") else str(exc))
+    else:
+        logger.info("crag published id=%s user=%s", crag.pk, request.user.pk)
+        messages.success(request, f"Crag \u201c{crag.name}\u201d published.")
+    return redirect("crags:detail", pk=crag.pk)
+
+
+@login_required
+@require_POST
+def crag_reject(request, pk):
+    """Reject a pending crag (final; only a superuser can change the status again)."""
+    if not request.user.has_perm(PUBLISH_PERM):
+        raise PermissionDenied
+    crag = get_object_or_404(Crag, pk=pk)
+    try:
+        crag.transition(Crag.Status.REJECTED, request.user)
+    except (InvalidTransition, ValidationError) as exc:
+        messages.error(request, exc.messages[0] if hasattr(exc, "messages") else str(exc))
+    else:
+        logger.info("crag rejected id=%s user=%s", crag.pk, request.user.pk)
+        messages.success(request, f"Crag \u201c{crag.name}\u201d rejected.")
+    return redirect("crags:detail", pk=crag.pk)
+
+
+@login_required
+@require_POST
+def crag_return(request, pk):
+    """Send a crag back to its submitter ("Needs changes") with a reason."""
+    if not request.user.has_perm(PUBLISH_PERM):
+        raise PermissionDenied
+    crag = get_object_or_404(Crag, pk=pk)
+    reason = request.POST.get("reason", "")
+    error = reason_error(reason)
+    if error:
+        messages.error(request, error)
+        return redirect("crags:detail", pk=crag.pk)
+    try:
+        crag.transition(Crag.Status.NEEDS_CHANGES, request.user, reason)
+    except (InvalidTransition, ValidationError) as exc:
+        messages.error(request, exc.messages[0] if hasattr(exc, "messages") else str(exc))
+    else:
+        logger.info("crag returned id=%s user=%s", crag.pk, request.user.pk)
+        messages.success(request, f"Crag \u201c{crag.name}\u201d sent back to the submitter.")
+    return redirect("crags:detail", pk=crag.pk)
+
+
+@login_required
+@require_POST
 def crag_delete(request, pk):
-    crag = get_object_or_404(editable_crags(request.user), pk=pk)
-    for photo in crag.photos.all():
-        photo.image.delete(save=False)  # also remove the file from disk
-    name = crag.name
-    crag_pk = crag.pk
-    crag.delete()
-    logger.info("crag deleted id=%s user=%s", crag_pk, request.user.pk)
-    messages.success(request, f"Crag \u201c{name}\u201d deleted.")
+    """Soft delete: status REMOVED; a superuser can restore it in the admin."""
+    crag = get_object_or_404(removable_crags(request.user), pk=pk)
+    crag.transition(Crag.Status.REMOVED, request.user)
+    logger.info("crag removed id=%s user=%s", crag.pk, request.user.pk)
+    messages.success(request, f"Crag \u201c{crag.name}\u201d removed.")
     return redirect("crags:mine")
 
 

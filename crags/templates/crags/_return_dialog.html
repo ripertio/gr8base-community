@@ -1,0 +1,17 @@
+{# Reason popup for "Needs changes". The fields belong to the form with id=form_id. #}
+<dialog id="return-dialog">
+    <article>
+        <header>
+            <button type="button" aria-label="Close" rel="prev" onclick="this.closest('dialog').close()"></button>
+            <h3>Needs changes: {{ crag.name }}</h3>
+        </header>
+        <label for="return-reason">What should the submitter change?
+            <textarea id="return-reason" name="reason" form="{{ form_id }}" rows="4"
+                      placeholder="At least {{ min_reason_length }} characters. The submitter sees this text."></textarea>
+        </label>
+        <footer class="actions">
+            <button type="button" class="secondary" onclick="this.closest('dialog').close()">Cancel</button>
+            <button type="submit" name="action" value="return" form="{{ form_id }}">Send back</button>
+        </footer>
+    </article>
+</dialog>

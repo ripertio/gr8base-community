@@ -2,12 +2,40 @@ from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.core.validators import MinValueValidator, MaxValueValidator
 from django.db import models
+from django.core.files.base import ContentFile
 from django.utils import timezone
+from PIL import Image
+import io
+import logging
 import uuid
+
+logger = logging.getLogger(__name__)
+
+THUMBNAIL_EDGE = 640     # longest side; sharp enough for a full-width card on a phone
+THUMBNAIL_QUALITY = 70   # ~90 KB instead of ~700 KB for a 1600px photo
+
 
 def photo_upload_path(instance, filename):
     # Random name: the user's filename is never used
     return f"crags/{uuid.uuid4().hex}.webp"
+
+
+def photo_thumbnail_upload_path(instance, filename):
+    return f"crags/thumbs/{uuid.uuid4().hex}.webp"
+
+
+def make_thumbnail_content(image_file):
+    """Return a small WEBP ContentFile made from an already processed image."""
+    image_file.open("rb")
+    try:
+        with Image.open(image_file) as img:
+            img = img.convert("RGB")
+            img.thumbnail((THUMBNAIL_EDGE, THUMBNAIL_EDGE))
+            buffer = io.BytesIO()
+            img.save(buffer, format="WEBP", quality=THUMBNAIL_QUALITY, method=6)
+    finally:
+        image_file.close()
+    return ContentFile(buffer.getvalue(), name="thumb.webp")
 
 class Area(models.Model):
     name = models.CharField(max_length=200, unique=True)
@@ -313,13 +341,58 @@ class Photo(models.Model):
         related_name="photos",
     )
 
+    # Small copy for cards and grids (generated on save), so pages don't load
+    # the full-size image just to show a 220px preview.
+    # db_default: code that doesn't know this column (the old version during a
+    # deploy, or after a code-only rollback) can still insert photos.
+    thumbnail = models.ImageField(
+        upload_to=photo_thumbnail_upload_path, blank=True, editable=False,
+        default="", db_default="",
+    )
+
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
         ordering = ["created_at"]
 
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._image_name_at_load = self.image.name
+
     def __str__(self):
         return f"Photo of {self.crag.name}"
+
+    @property
+    def thumbnail_url(self):
+        """Thumbnail if there is one, otherwise the full image."""
+        return (self.thumbnail or self.image).url
+
+    def save(self, *args, **kwargs):
+        image_changed = self.image.name != self._image_name_at_load
+        super().save(*args, **kwargs)
+        self._image_name_at_load = self.image.name
+        if self.image and (image_changed or not self.thumbnail):
+            self.make_thumbnail()
+
+    def make_thumbnail(self):
+        """(Re)create the thumbnail from the stored image. Returns True on success."""
+        old = self.thumbnail.name
+        try:
+            content = make_thumbnail_content(self.image)
+        except OSError as exc:
+            logger.warning("thumbnail failed photo=%s (%s)", self.pk, type(exc).__name__)
+            return False
+        self.thumbnail.save("thumb.webp", content, save=False)
+        Photo.objects.filter(pk=self.pk).update(thumbnail=self.thumbnail.name)
+        if old and old != self.thumbnail.name:
+            self.thumbnail.storage.delete(old)
+        return True
+
+    def delete_files(self):
+        """Remove the image and thumbnail files from storage."""
+        if self.thumbnail:
+            self.thumbnail.delete(save=False)
+        self.image.delete(save=False)
 
 
 class CragRating(models.Model):

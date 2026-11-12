@@ -60,7 +60,11 @@ main() {
     LOG="$(dirname "$BACKUP")/deploy.log"
 
     docker compose run --rm web python manage.py migrate --noinput
-    docker compose up -d web
+    # New photos get a thumbnail on save; this only fills gaps (photos from
+    # before thumbnails existed, or uploaded while a rollback ran older code).
+    # Does nothing when every photo already has one.
+    docker compose run --rm web python manage.py make_thumbnails
+    docker compose up -d
 }
 
 main "$@"

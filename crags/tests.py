@@ -1,4 +1,5 @@
 import io
+import os
 import re
 import tempfile
 from datetime import timedelta
@@ -8,6 +9,7 @@ from django.contrib.auth.models import Group
 from django.core.exceptions import ValidationError
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.core import mail
+from django.core.management import call_command
 from django.db import connection
 from django.test import SimpleTestCase, TestCase, override_settings
 from django.test.utils import CaptureQueriesContext
@@ -16,7 +18,10 @@ from django.utils import timezone
 from PIL import Image
 
 from .forms import MAX_EDGE, MAX_UPLOAD_BYTES, process_image
-from .models import Area, Crag, InvalidTransition, CragComment, CragRating, Feature, Guidebook, Photo
+from .models import (
+    THUMBNAIL_EDGE, Area, Crag, InvalidTransition, CragComment, CragRating, Feature,
+    Guidebook, Photo,
+)
 
 
 User = get_user_model()
@@ -1420,6 +1425,132 @@ class PhotoUploadTests(CragTestBase):
         photos = Photo.objects.filter(crag=self.draft).order_by("pk")
         self.assertEqual(photos.count(), 2)
         self.assertTrue(all(photo.image.name.endswith(".webp") for photo in photos))
+        self.assertTrue(all(photo.thumbnail.name.startswith("crags/thumbs/") for photo in photos))
+
+
+class PhotoThumbnailTests(CragTestBase):
+    def setUp(self):
+        self._media = tempfile.TemporaryDirectory()
+        self.addCleanup(self._media.cleanup)
+        settings_override = override_settings(MEDIA_ROOT=self._media.name)
+        settings_override.enable()
+        self.addCleanup(settings_override.disable)
+
+    def _photo(self, size=(1600, 1200), crag=None):
+        buffer = io.BytesIO()
+        Image.new("RGB", size, "red").save(buffer, format="JPEG")
+        upload = SimpleUploadedFile("p.jpg", buffer.getvalue(), content_type="image/jpeg")
+        return Photo.objects.create(
+            crag=crag or self.published,
+            image=process_image(upload),
+            uploaded_by=self.alice,
+        )
+
+    def test_thumbnail_is_created_on_save(self):
+        photo = self._photo()
+        photo.refresh_from_db()
+        self.assertTrue(photo.thumbnail.name.startswith("crags/thumbs/"))
+        with Image.open(photo.thumbnail.path) as thumb:
+            self.assertEqual(thumb.format, "WEBP")
+            self.assertEqual(thumb.size, (THUMBNAIL_EDGE, THUMBNAIL_EDGE * 3 // 4))
+        self.assertEqual(photo.thumbnail_url, photo.thumbnail.url)
+
+    def test_list_and_detail_use_thumbnail_not_full_image(self):
+        photo = self._photo()
+        for url in (reverse("crags:list"), reverse("crags:detail", args=[self.published.pk])):
+            response = self.client.get(url)
+            self.assertContains(response, 'src="%s"' % photo.thumbnail.url)
+            self.assertNotContains(response, 'src="%s"' % photo.image.url)
+        # the gallery still opens the full-size image
+        self.assertContains(response, 'href="%s"' % photo.image.url)
+
+    def test_list_shows_first_photo_of_each_crag(self):
+        first = self._photo(size=(40, 30))
+        later = self._photo(size=(40, 30))
+        other = self._photo(size=(40, 30), crag=self.pending)
+        response = self.client.get(reverse("crags:list"))
+        self.assertContains(response, 'src="%s"' % first.thumbnail.url)
+        self.assertContains(response, 'src="%s"' % other.thumbnail.url)
+        self.assertNotContains(response, later.thumbnail.url)
+
+    def test_list_query_count_does_not_grow_with_crags(self):
+        url = reverse("crags:list")
+        self._photo(size=(40, 30))
+        with CaptureQueriesContext(connection) as one:
+            self.client.get(url)
+        for i in range(3):
+            crag = Crag.objects.create(
+                name=f"Extra {i}", area=self.area, created_by=self.alice,
+                status=Crag.Status.PUBLISHED,
+            )
+            self._photo(size=(40, 30), crag=crag)
+        with CaptureQueriesContext(connection) as four:
+            response = self.client.get(url)
+        self.assertContains(response, "Extra 2")
+        self.assertEqual(len(one), len(four))
+
+    def test_missing_thumbnail_falls_back_to_full_image(self):
+        photo = self._photo()
+        Photo.objects.filter(pk=photo.pk).update(thumbnail="")
+        photo.refresh_from_db()
+        self.assertEqual(photo.thumbnail_url, photo.image.url)
+        response = self.client.get(reverse("crags:list"))
+        self.assertContains(response, 'src="%s"' % photo.image.url)
+
+    def test_replacing_image_regenerates_thumbnail(self):
+        photo = self._photo()
+        old_thumb_path = photo.thumbnail.path
+        buffer = io.BytesIO()
+        Image.new("RGB", (100, 200), "blue").save(buffer, format="JPEG")
+        photo.image = process_image(
+            SimpleUploadedFile("new.jpg", buffer.getvalue(), content_type="image/jpeg")
+        )
+        photo.save()
+        photo.refresh_from_db()
+        with Image.open(photo.thumbnail.path) as thumb:
+            self.assertEqual(thumb.size, (100, 200))
+        self.assertFalse(os.path.exists(old_thumb_path))
+
+    def test_delete_removes_image_and_thumbnail_files(self):
+        photo = self._photo(crag=self.draft)
+        paths = [photo.image.path, photo.thumbnail.path]
+        self.client.force_login(self.alice)
+        self.client.post(reverse("crags:photo_delete", args=[photo.pk]))
+        self.assertFalse(Photo.objects.filter(pk=photo.pk).exists())
+        self.assertFalse(any(os.path.exists(p) for p in paths))
+
+    def test_make_thumbnails_command_backfills_missing(self):
+        photo = self._photo()
+        os.remove(photo.thumbnail.path)
+        Photo.objects.filter(pk=photo.pk).update(thumbnail="")
+        out = io.StringIO()
+        call_command("make_thumbnails", stdout=out)
+        photo.refresh_from_db()
+        self.assertTrue(os.path.exists(photo.thumbnail.path))
+        self.assertIn("Created 1 thumbnail(s), 0 failed.", out.getvalue())
+
+    def test_insert_without_thumbnail_column_works(self):
+        # Code from before thumbnails (old version during a deploy, or after a
+        # code-only rollback) inserts photos without naming the column.
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "INSERT INTO crags_photo (crag_id, image, category, caption, created_at)"
+                " VALUES (%s, 'crags/old.webp', 'CRAG', '', NOW()) RETURNING id",
+                [self.published.pk],
+            )
+            pk = cursor.fetchone()[0]
+        self.assertEqual(Photo.objects.get(pk=pk).thumbnail.name, "")
+
+    def test_unreadable_image_does_not_break_save(self):
+        photo = self._photo()
+        os.remove(photo.image.path)
+        Photo.objects.filter(pk=photo.pk).update(thumbnail="")
+        photo.refresh_from_db()
+        with self.assertLogs("crags.models", "WARNING"):
+            self.assertFalse(photo.make_thumbnail())
+        photo.refresh_from_db()
+        self.assertEqual(photo.thumbnail.name, "")
+
 
 class ProcessImageTests(SimpleTestCase):
     def _jpeg(self, size=(32, 24), exif=None):

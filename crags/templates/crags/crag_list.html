@@ -201,7 +201,7 @@ Find crags – gr8base community
 
         {% for crag in crags %}
 
-            {% with photo=crag.photos.first %}
+            {% with photo=crag.cover_photo %}
 
             <article class="crag-card{% if photo %} has-photo{% endif %}">
 
@@ -212,8 +212,10 @@ Find crags – gr8base community
 
                             <img
                                 class="crag-card-image"
-                                src="{{ photo.image.url }}"
+                                src="{{ photo.thumbnail_url }}"
                                 alt="{{ crag.name }}"
+                                loading="{% if forloop.first %}eager{% else %}lazy{% endif %}"
+                                decoding="async"
                             >
 
                         </a>

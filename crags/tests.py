@@ -1,6 +1,7 @@
 import io
 import re
 import tempfile
+from datetime import timedelta
 
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import Group
@@ -11,6 +12,7 @@ from django.db import connection
 from django.test import SimpleTestCase, TestCase, override_settings
 from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
+from django.utils import timezone
 from PIL import Image
 
 from .forms import MAX_EDGE, MAX_UPLOAD_BYTES, process_image
@@ -458,6 +460,116 @@ class SuperuserChangeStatusTests(CragTestBase):
         self.change(manager, self.published, "DRAFT")
         self.published.refresh_from_db()
         self.assertEqual(self.published.status, Crag.Status.PUBLISHED)
+
+
+class ModerationQueueTests(CragTestBase):
+    url = "/moderation/"
+
+    def manager(self):
+        user = User.objects.create_user("mgr", "m@example.com", "pw", is_staff=True)
+        user.groups.add(Group.objects.get(name="Crag Managers"))
+        return user
+
+    def test_anonymous_is_sent_to_login(self):
+        resp = self.client.get(self.url)
+        self.assertEqual(resp.status_code, 302)
+        self.assertIn("/accounts/login/", resp["Location"])
+
+    def test_regular_users_get_403(self):
+        for user in (self.alice, self.bob):
+            self.client.force_login(user)
+            self.assertEqual(self.client.get(self.url).status_code, 403)
+
+    def test_staff_manager_and_superuser_can_open(self):
+        root = User.objects.create_superuser("root", "r@example.com", "pw")
+        for user in (self.staff, self.manager(), root):
+            self.client.force_login(user)
+            self.assertEqual(self.client.get(self.url).status_code, 200)
+
+    def make_older_pending(self):
+        older = Crag.objects.create(
+            name="Older pending", area=self.area, created_by=self.alice,
+            status=Crag.Status.PENDING, submitted_at=timezone.now() - timedelta(days=2),
+        )
+        Crag.objects.filter(pk=self.pending.pk).update(
+            submitted_at=timezone.now() - timedelta(days=1)
+        )
+        return older
+
+    def test_empty_status_shows_all_but_removed_pending_first_oldest_first(self):
+        older = self.make_older_pending()
+        removed = Crag.all_objects.create(
+            name="Gone", area=self.area, created_by=self.alice, status=Crag.Status.REMOVED
+        )
+        self.client.force_login(self.manager())
+        crags = list(self.client.get(self.url + "?status=").context["crags"])
+        self.assertEqual(crags[:2], [older, self.pending])
+        self.assertIn(self.published, crags)
+        self.assertIn(self.draft, crags)
+        self.assertNotIn(removed, crags)
+
+    def test_pending_is_preselected_by_default(self):
+        older = self.make_older_pending()
+        self.client.force_login(self.manager())
+        resp = self.client.get(self.url)
+        self.assertEqual(list(resp.context["crags"]), [older, self.pending])
+        self.assertTrue(resp.context["filtered"])
+        selected = [c["label"] for c in resp.context["chips"] if c["selected"]]
+        self.assertEqual(selected, ["Pending review"])
+        self.assertContains(resp, 'href="?status="')  # "Show all" link
+
+    def test_status_filter_uses_the_selected_chips(self):
+        older = self.make_older_pending()
+        self.client.force_login(self.manager())
+        only_pending = self.client.get(self.url, {"status": "PENDING"})
+        self.assertEqual(list(only_pending.context["crags"]), [older, self.pending])
+        both = self.client.get(self.url + "?status=PENDING&status=DRAFT")
+        self.assertEqual(
+            set(both.context["crags"]), {older, self.pending, self.draft}
+        )
+        selected = [c["label"] for c in both.context["chips"] if c["selected"]]
+        self.assertEqual(selected, ["Draft", "Pending review"])
+
+    def test_chip_links_toggle_the_status(self):
+        self.client.force_login(self.manager())
+        chips = {
+            c["label"]: c["query"]
+            for c in self.client.get(self.url, {"status": "PENDING"}).context["chips"]
+        }
+        self.assertEqual(chips["Pending review"], "status=")  # deselect -> show all
+        self.assertEqual(chips["Draft"], "status=PENDING&status=DRAFT")
+
+    def test_removed_and_unknown_statuses_cannot_be_selected(self):
+        self.client.force_login(self.manager())
+        resp = self.client.get(self.url + "?status=REMOVED&status=nonsense")
+        self.assertFalse(resp.context["filtered"])
+        self.assertIn(self.published, list(resp.context["crags"]))
+
+    def test_status_counts_cover_all_statuses_except_removed(self):
+        self.client.force_login(self.manager())
+        resp = self.client.get(self.url)
+        counts = {c["label"]: c["count"] for c in resp.context["chips"]}
+        self.assertEqual(
+            list(counts),
+            ["Draft", "Pending review", "Published", "Needs changes", "Rejected"],
+        )
+        self.assertEqual(
+            (counts["Draft"], counts["Pending review"], counts["Published"]), (1, 1, 1)
+        )
+        self.assertContains(resp, "Draft: 1")
+        self.assertNotContains(resp, "Removed:")
+
+    def test_nav_link_only_for_moderators(self):
+        self.client.force_login(self.alice)
+        self.assertNotContains(self.client.get("/"), "/moderation/")
+        for user in (self.staff, self.manager()):
+            self.client.force_login(user)
+            self.assertContains(self.client.get("/"), "/moderation/")
+
+    def test_admin_link_is_on_the_moderation_page_not_in_the_nav(self):
+        self.client.force_login(self.manager())
+        self.assertNotContains(self.client.get("/"), 'href="/admin/"')
+        self.assertContains(self.client.get(self.url), 'href="/admin/"')
 
 
 class EditPermissionTests(CragTestBase):

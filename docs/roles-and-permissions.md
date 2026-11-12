@@ -17,6 +17,7 @@ A Crag Manager is therefore not a separate account type, but staff plus a group.
 | Delete any comment | yes | yes | yes |
 | No photo limit (otherwise 8 per crag) | yes | yes | yes |
 | See visitor charts on the stats page | yes | yes | yes |
+| Open the moderation page (`/moderation/`) | yes | yes | yes |
 | Remove (soft delete) any crag | own crags only | yes | yes |
 | View private profiles | no | no | yes |
 | **Django admin** | | | |

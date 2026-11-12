@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+
+{% block title %}Moderation – gr8base community{% endblock %}
+
+{% block content %}
+<h1>Moderation</h1>
+{% if user.is_staff %}
+    <p><a href="{% url 'admin:index' %}">Open the Django admin →</a></p>
+{% endif %}
+<ul class="chips" aria-label="Filter by status">
+    {% for chip in chips %}
+        <li class="chip{% if chip.selected %} chip-selected{% endif %}">
+            <a href="?{{ chip.query }}"{% if chip.selected %} aria-current="true"{% endif %}>{{ chip.label }}: {{ chip.count }}</a>
+        </li>
+    {% endfor %}
+</ul>
+{% if filtered %}<p><small><a href="?{{ show_all_query }}">Show all</a></small></p>{% endif %}
+
+<p><strong>{{ crags|length }} crag{{ crags|length|pluralize }}</strong>{% if filtered %} for the selected status{% endif %}</p>
+
+{% for crag in crags %}
+    <article>
+        <header class="status-header">
+            <a href="{% url 'crags:detail' crag.pk %}">{{ crag.name }}</a>
+            <ul class="chips"><li class="chip">{{ crag.get_status_display }}</li></ul>
+        </header>
+        <p>
+            {{ crag.area.name }}<br>
+            <small>
+                by {% if crag.created_by %}{{ crag.created_by.username }}{% else %}unknown{% endif %}
+                · {% if crag.submitted_at %}submitted {{ crag.submitted_at|date:"j M Y, H:i" }}{% else %}created {{ crag.created_at|date:"j M Y" }}{% endif %}
+                · {{ crag.photo_count }} photo{{ crag.photo_count|pluralize }}
+            </small>
+        </p>
+    </article>
+{% empty %}
+    <p>No crags.</p>
+{% endfor %}
+{% endblock %}

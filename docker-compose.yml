@@ -118,6 +118,10 @@ configs:
           encode zstd gzip
           handle_path /media/* {
               root * /srv/media
+              # Uploads get random uuid names and never change, so browsers may keep
+              # them for a year without asking again. Cloudflare (s-maxage) only for a
+              # day, so deleted or moderated photos disappear from its cache quickly.
+              header Cache-Control "public, max-age=31536000, s-maxage=86400, immutable"
               file_server
           }
           # Cloudflare terminates TLS; tell Django the original request was HTTPS (avoids a redirect loop).

@@ -78,13 +78,24 @@
             </fieldset>
         {% endif %}
 
-        <div class="grid">
+        <div class="actions">
             <button type="submit" name="action" value="draft" class="secondary">
                 Save as draft
             </button>
             <button type="submit" name="action" value="submit">
                 Submit for review
             </button>
+            {% if can_publish %}
+                <button type="submit" name="action" value="publish">
+                    Save and publish
+                </button>
+            {% endif %}
+            {% if can_remove %}
+                {# submits the separate form #remove-crag below (forms cannot be nested) #}
+                <button type="submit" form="remove-crag" class="outline secondary">
+                    Remove crag
+                </button>
+            {% endif %}
         </div>
     </form>
 
@@ -98,12 +109,11 @@
             </form>
         {% endfor %}
         {% if can_remove %}
-        <form method="post"
-              action="{% url 'crags:delete' crag.pk %}"
-              onsubmit="return confirm('Really remove this crag? It will no longer be visible.')">
-            {% csrf_token %}
-            <button type="submit" class="outline secondary">Remove crag</button>
-        </form>
+            <form id="remove-crag" method="post"
+                  action="{% url 'crags:delete' crag.pk %}"
+                  onsubmit="return confirm('Really remove this crag? It will no longer be visible.')">
+                {% csrf_token %}
+            </form>
         {% endif %}
     {% endif %}
 {% endblock %}

@@ -25,6 +25,7 @@ A Crag Manager is therefore not a separate account type, but staff plus a group.
 | Add and edit crags, areas, guidebooks | no | yes | yes |
 | Delete areas and guidebooks | no | yes | yes |
 | Publish, return or reject crags | no | yes | yes |
+| "Publish" button on the crag page and "Save and publish" on the edit page (pending crags only) | no | yes | yes |
 | Hard delete crags | no | no | yes |
 | Restore removed crags | no | no | yes |
 | Change a crag to any status (see below) | no | no | yes |

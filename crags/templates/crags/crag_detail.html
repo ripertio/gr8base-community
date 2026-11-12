@@ -21,8 +21,18 @@
     <p><mark>Status: {{ crag.get_status_display }}</mark></p>
 {% endif %}
 
-{% if can_edit %}
-    <p><a href="{% url 'crags:edit' crag.pk %}" role="button" class="outline">Edit</a></p>
+{% if can_edit or can_publish %}
+    <div class="actions">
+        {% if can_edit %}
+            <a href="{% url 'crags:edit' crag.pk %}" role="button" class="outline">Edit</a>
+        {% endif %}
+        {% if can_publish %}
+            <form method="post" action="{% url 'crags:publish' crag.pk %}">
+                {% csrf_token %}
+                <button type="submit">Publish</button>
+            </form>
+        {% endif %}
+    </div>
 {% endif %}
 
 <a href="{% url 'crags:list' %}">

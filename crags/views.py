@@ -9,12 +9,20 @@ from django.urls import reverse
 from django.views.decorators.http import require_POST
 
 from .forms import BulkPhotoForm, CragForm, process_image
-from .models import Area, Crag, CragComment, CragRating, Feature, Photo
+from .models import Area, Crag, CragComment, CragRating, Feature, InvalidTransition, Photo
 
 logger = logging.getLogger(__name__)
 
 MAX_PHOTOS_PER_CRAG = 8
 MAX_FILES_PER_UPLOAD = 8
+
+PUBLISH_PERM = "crags.can_publish_crag"
+
+
+def can_publish_now(user, crag):
+    """Publish buttons: the user may publish and the crag is waiting for review."""
+    return user.has_perm(PUBLISH_PERM) and crag.status == Crag.Status.PENDING
+
 
 def visible_crags(user):
     """Who may SEE which crags."""
@@ -210,6 +218,7 @@ def crag_detail(request, pk):
         {
             "crag": crag,
             "can_edit": can_edit,
+            "can_publish": can_publish_now(request.user, crag),
             "community": community,
             "can_rate": can_rate,
             "my_rating": my_rating,
@@ -379,6 +388,9 @@ def crag_edit(request, pk):
     existing = crag.photos.count()
 
     if request.method == "POST":
+        publish = request.POST.get("action") == "publish"
+        if publish and not request.user.has_perm(PUBLISH_PERM):
+            raise PermissionDenied
         form = CragForm(request.POST, request.FILES, instance=crag)
         photo_form = BulkPhotoForm(request.POST)
         uploads = request.FILES.getlist("images")
@@ -424,6 +436,13 @@ def crag_edit(request, pk):
                 )
                 if resubmit and Crag.Status.PENDING in crag.ALLOWED_TRANSITIONS[crag.status]:
                     crag.transition(Crag.Status.PENDING, request.user)
+                if publish:
+                    try:
+                        crag.transition(Crag.Status.PUBLISHED, request.user)
+                    except (InvalidTransition, ValidationError) as exc:
+                        messages.error(request, f"Saved, but not published: {exc.messages[0]}")
+                    else:
+                        messages.success(request, "Crag published.")
                 for content in converted:
                     Photo.objects.create(
                         crag=crag,
@@ -464,6 +483,7 @@ def crag_edit(request, pk):
             "crag": crag,
             "title": f"{crag.name} bearbeiten",
             "note": note,
+            "can_publish": can_publish_now(request.user, crag),
             "can_remove": removable_crags(request.user).filter(pk=crag.pk).exists(),
         },
     )
@@ -528,6 +548,22 @@ def photo_add(request, pk):
         "crags/crag_photo_form.html",
         {"form": form, "crag": crag, "max_files": MAX_FILES_PER_UPLOAD},
     )
+
+
+@login_required
+@require_POST
+def crag_publish(request, pk):
+    if not request.user.has_perm(PUBLISH_PERM):
+        raise PermissionDenied
+    crag = get_object_or_404(Crag, pk=pk)
+    try:
+        crag.transition(Crag.Status.PUBLISHED, request.user)
+    except (InvalidTransition, ValidationError) as exc:
+        messages.error(request, exc.messages[0] if hasattr(exc, "messages") else str(exc))
+    else:
+        logger.info("crag published id=%s user=%s", crag.pk, request.user.pk)
+        messages.success(request, f"Crag \u201c{crag.name}\u201d published.")
+    return redirect("crags:detail", pk=crag.pk)
 
 
 @login_required

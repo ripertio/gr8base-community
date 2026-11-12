@@ -64,7 +64,7 @@ main() {
     # before thumbnails existed, or uploaded while a rollback ran older code).
     # Does nothing when every photo already has one.
     docker compose run --rm web python manage.py make_thumbnails
-    docker compose up -d web
+    docker compose up -d
 }
 
 main "$@"

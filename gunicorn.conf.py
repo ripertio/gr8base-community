@@ -1,9 +1,13 @@
 """Gunicorn settings (picked up automatically from the working directory).
 
 Logs go to the console (so `docker compose logs web` works) and to rotated
-files in logs/ (untracked in git). Gunicorn runs a single sync worker here, so
-the size-based rotation does not race between processes; revisit it if
+files in logs/ (untracked in git). Gunicorn runs a single worker process here,
+so the size-based rotation does not race between processes; revisit it if
 `workers` is ever raised.
+
+That one process has several threads, so a slow request (e.g. converting a
+batch of uploaded photos) no longer makes every other visitor wait. Threads
+share the log handlers, which are thread-safe, so rotation stays correct.
 """
 
 from pathlib import Path
@@ -13,6 +17,10 @@ LOG_DIR.mkdir(exist_ok=True)
 
 bind = "0.0.0.0:8000"
 loglevel = "info"
+
+workers = 1
+worker_class = "gthread"
+threads = 4
 
 _file = {
     "class": "logging.handlers.RotatingFileHandler",

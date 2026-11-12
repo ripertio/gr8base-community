@@ -19,6 +19,7 @@ services:
       DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY}
       DJANGO_ALLOWED_HOSTS: gr8base.com,www.gr8base.com
       DJANGO_CSRF_TRUSTED_ORIGINS: https://gr8base.com,https://www.gr8base.com
+      SITE_URL: https://gr8base.com   # links in e-mails
       RESEND_API_KEY: ${RESEND_API_KEY}
 
       POSTGRES_DB: familienfelsen

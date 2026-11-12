@@ -683,7 +683,7 @@ def photo_delete(request, pk):
     photo = get_object_or_404(photos, pk=pk)
     crag_pk = photo.crag_id
     photo_pk = photo.pk
-    photo.image.delete(save=False)  # also remove the file from disk
+    photo.delete_files()  # also remove image and thumbnail from disk
     photo.delete()
     logger.info(
         "photo deleted id=%s crag=%s user=%s", photo_pk, crag_pk, request.user.pk

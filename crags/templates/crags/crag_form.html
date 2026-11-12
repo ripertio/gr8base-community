@@ -57,7 +57,7 @@
                     <div class="photo-grid">
                         {% for photo in crag.photos.all %}
                             <figure>
-                                <img src="{{ photo.image.url }}"
+                                <img src="{{ photo.thumbnail_url }}"
                                      alt="{% if photo.caption %}{{ photo.caption }}{% else %}{{ photo.get_category_display }}{% endif %}"
                                      loading="lazy">
                                 <figcaption>

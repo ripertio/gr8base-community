@@ -212,8 +212,10 @@ Find crags – gr8base community
 
                             <img
                                 class="crag-card-image"
-                                src="{{ photo.image.url }}"
+                                src="{{ photo.thumbnail_url }}"
                                 alt="{{ crag.name }}"
+                                loading="{% if forloop.first %}eager{% else %}lazy{% endif %}"
+                                decoding="async"
                             >
 
                         </a>

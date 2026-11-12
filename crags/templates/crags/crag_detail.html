@@ -217,7 +217,8 @@
                        data-alt="{% if photo.caption %}{{ photo.caption }}{% else %}{{ photo.get_category_display }}{% endif %}"
                        data-caption="{{ photo.get_category_display }}{% if photo.caption %} – {{ photo.caption }}{% endif %}">
                         <img
-                            src="{{ photo.image.url }}"
+                            src="{{ photo.thumbnail_url }}"
+                            decoding="async"
                             alt="{% if photo.caption %}{{ photo.caption }}{% else %}{{ photo.get_category_display }}{% endif %}"
                             loading="lazy"
                         >

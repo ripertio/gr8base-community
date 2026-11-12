@@ -97,11 +97,13 @@
                 <input type="hidden" name="next" value="edit">
             </form>
         {% endfor %}
+        {% if can_remove %}
         <form method="post"
               action="{% url 'crags:delete' crag.pk %}"
-              onsubmit="return confirm('Really delete this crag and all its photos? This cannot be undone.')">
+              onsubmit="return confirm('Really remove this crag? It will no longer be visible.')">
             {% csrf_token %}
-            <button type="submit" class="outline secondary">Delete crag</button>
+            <button type="submit" class="outline secondary">Remove crag</button>
         </form>
+        {% endif %}
     {% endif %}
 {% endblock %}

@@ -1,0 +1,20 @@
+{% extends "admin/base_site.html" %}
+
+{% block content %}
+<form method="post">
+    {% csrf_token %}
+    <p>Set the status of these crags. Any status can be chosen, whatever the current one is.</p>
+    <ul>
+        {% for crag in crags %}
+            <li>{{ crag.name }} ({{ crag.get_status_display }})
+                <input type="hidden" name="{{ action_checkbox_name }}" value="{{ crag.pk }}">
+            </li>
+        {% endfor %}
+    </ul>
+    {{ form.as_p }}
+    <input type="hidden" name="action" value="change_status">
+    <input type="hidden" name="apply" value="1">
+    <input type="submit" value="Change status">
+    <a href="{% url 'admin:crags_crag_changelist' %}">Cancel</a>
+</form>
+{% endblock %}

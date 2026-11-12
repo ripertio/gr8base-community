@@ -33,6 +33,13 @@ def editable_crags(user):
     return Crag.objects.filter(created_by=user)
 
 
+def removable_crags(user):
+    """Who may REMOVE (soft-delete) which crags: owners and users with the permission."""
+    if user.has_perm("crags.can_remove_crag"):
+        return Crag.objects.all()
+    return Crag.objects.filter(created_by=user)
+
+
 AGE_FIELDS = {
     "babies": ("Babies", "rating_babies"),
     "ages_2_4": ("Ages 2–4", "rating_ages_2_4"),
@@ -408,10 +415,11 @@ def crag_edit(request, pk):
                 form.save_m2m()
                 resubmit = (
                     request.POST.get("action") == "submit"
-                    # any change to a published crag needs a new review
+                    # any change to a published crag needs a new review,
+                    # unless the editor may publish it themselves
                     or (
                         crag.status == Crag.Status.PUBLISHED
-                        and not request.user.is_staff
+                        and not request.user.has_perm("crags.can_publish_crag")
                     )
                 )
                 if resubmit and Crag.Status.PENDING in crag.ALLOWED_TRANSITIONS[crag.status]:
@@ -440,7 +448,9 @@ def crag_edit(request, pk):
         photo_form = BulkPhotoForm()
 
     note = ""
-    if crag.status == Crag.Status.PUBLISHED and not request.user.is_staff:
+    if crag.status == Crag.Status.PUBLISHED and not request.user.has_perm(
+        "crags.can_publish_crag"
+    ):
         note = "Changes to published crags will be reviewed again."
 
     return render(
@@ -454,6 +464,7 @@ def crag_edit(request, pk):
             "crag": crag,
             "title": f"{crag.name} bearbeiten",
             "note": note,
+            "can_remove": removable_crags(request.user).filter(pk=crag.pk).exists(),
         },
     )
 
@@ -522,14 +533,11 @@ def photo_add(request, pk):
 @login_required
 @require_POST
 def crag_delete(request, pk):
-    crag = get_object_or_404(editable_crags(request.user), pk=pk)
-    for photo in crag.photos.all():
-        photo.image.delete(save=False)  # also remove the file from disk
-    name = crag.name
-    crag_pk = crag.pk
-    crag.delete()
-    logger.info("crag deleted id=%s user=%s", crag_pk, request.user.pk)
-    messages.success(request, f"Crag \u201c{name}\u201d deleted.")
+    """Soft delete: status REMOVED; a superuser can restore it in the admin."""
+    crag = get_object_or_404(removable_crags(request.user), pk=pk)
+    crag.transition(Crag.Status.REMOVED, request.user)
+    logger.info("crag removed id=%s user=%s", crag.pk, request.user.pk)
+    messages.success(request, f"Crag \u201c{crag.name}\u201d removed.")
     return redirect("crags:mine")
 
 

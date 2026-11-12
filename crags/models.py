@@ -60,6 +60,13 @@ class CragQuerySet(models.QuerySet):
         return self.filter(status__in=Crag.PUBLIC_STATUSES)
 
 
+class ActiveCragManager(models.Manager.from_queryset(CragQuerySet)):
+    """Default manager: hides removed (soft-deleted) crags everywhere on the site."""
+
+    def get_queryset(self):
+        return super().get_queryset().exclude(status=Crag.Status.REMOVED)
+
+
 class Crag(models.Model):
     class Status(models.TextChoices):
         DRAFT = "DRAFT", "Draft"
@@ -67,6 +74,7 @@ class Crag(models.Model):
         PUBLISHED = "PUBLISHED", "Published"
         NEEDS_CHANGES = "NEEDS_CHANGES", "Needs changes"
         REJECTED = "REJECTED", "Rejected"
+        REMOVED = "REMOVED", "Removed"
        # statuses that anonymous visitors may see
     PUBLIC_STATUSES = (Status.PUBLISHED, Status.PENDING)
 
@@ -200,22 +208,32 @@ class Crag(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
-    objects = CragQuerySet.as_manager()
+    objects = ActiveCragManager()
+    all_objects = CragQuerySet.as_manager()  # includes removed crags (admin only)
 
     # status -> statuses it may move to via transition()
     ALLOWED_TRANSITIONS = {
-        Status.DRAFT: {Status.PENDING},
-        Status.PENDING: {Status.PUBLISHED, Status.NEEDS_CHANGES, Status.REJECTED},
-        Status.NEEDS_CHANGES: {Status.PENDING},
-        Status.PUBLISHED: {Status.PENDING, Status.NEEDS_CHANGES},
-        Status.REJECTED: set(),
+        Status.DRAFT: {Status.PENDING, Status.REMOVED},
+        Status.PENDING: {
+            Status.PUBLISHED, Status.NEEDS_CHANGES, Status.REJECTED, Status.REMOVED,
+        },
+        Status.NEEDS_CHANGES: {Status.PENDING, Status.REMOVED},
+        Status.PUBLISHED: {Status.PENDING, Status.NEEDS_CHANGES, Status.REMOVED},
+        Status.REJECTED: {Status.REMOVED},
+        # a restored crag starts again as a private draft
+        Status.REMOVED: {Status.DRAFT},
     }
     MIN_REASON_LENGTH = 10
 
-    def transition(self, to, actor, reason=""):
-        """The only place that changes status; validates and sets audit fields."""
+    def transition(self, to, actor, reason="", force=False):
+        """The only place that changes status; validates and sets audit fields.
+
+        force=True skips the allowed-transitions table (superuser override in the admin).
+        """
         to = self.Status(to)
-        if to not in self.ALLOWED_TRANSITIONS[self.Status(self.status)]:
+        if to == self.status:
+            raise InvalidTransition(f"Already {self.Status(self.status).label}.")
+        if not force and to not in self.ALLOWED_TRANSITIONS[self.Status(self.status)]:
             raise InvalidTransition(f"Cannot change {self.status} to {to}.")
         reason = (reason or "").strip()
         if to == self.Status.NEEDS_CHANGES and len(reason) < self.MIN_REASON_LENGTH:
@@ -228,6 +246,8 @@ class Crag(models.Model):
             self.reviewed_by = None
             self.reviewed_at = None
             self.review_reason = ""
+        elif to in (self.Status.REMOVED, self.Status.DRAFT):
+            pass  # removing or restoring is not a review decision
         else:
             self.reviewed_by = actor
             self.reviewed_at = now
@@ -246,7 +266,10 @@ class Crag(models.Model):
 
     class Meta:
         ordering = ["name"]
-        permissions = [("can_publish_crag", "Can publish and return crags")]
+        permissions = [
+            ("can_publish_crag", "Can publish and return crags"),
+            ("can_remove_crag", "Can remove crags (soft delete)"),
+        ]
 
     def __str__(self):
         return self.name

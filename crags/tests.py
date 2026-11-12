@@ -1464,6 +1464,31 @@ class PhotoThumbnailTests(CragTestBase):
         # the gallery still opens the full-size image
         self.assertContains(response, 'href="%s"' % photo.image.url)
 
+    def test_list_shows_first_photo_of_each_crag(self):
+        first = self._photo(size=(40, 30))
+        later = self._photo(size=(40, 30))
+        other = self._photo(size=(40, 30), crag=self.pending)
+        response = self.client.get(reverse("crags:list"))
+        self.assertContains(response, 'src="%s"' % first.thumbnail.url)
+        self.assertContains(response, 'src="%s"' % other.thumbnail.url)
+        self.assertNotContains(response, later.thumbnail.url)
+
+    def test_list_query_count_does_not_grow_with_crags(self):
+        url = reverse("crags:list")
+        self._photo(size=(40, 30))
+        with CaptureQueriesContext(connection) as one:
+            self.client.get(url)
+        for i in range(3):
+            crag = Crag.objects.create(
+                name=f"Extra {i}", area=self.area, created_by=self.alice,
+                status=Crag.Status.PUBLISHED,
+            )
+            self._photo(size=(40, 30), crag=crag)
+        with CaptureQueriesContext(connection) as four:
+            response = self.client.get(url)
+        self.assertContains(response, "Extra 2")
+        self.assertEqual(len(one), len(four))
+
     def test_missing_thumbnail_falls_back_to_full_image(self):
         photo = self._photo()
         Photo.objects.filter(pk=photo.pk).update(thumbnail="")

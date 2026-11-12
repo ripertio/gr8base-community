@@ -167,9 +167,17 @@ def crag_list(request):
         .values_list("crag_id")
         .annotate(n=Count("id"))
     )
+    # First photo of each crag (same order as crag.photos.first()), one query in total
+    cover_photos = {
+        photo.crag_id: photo
+        for photo in Photo.objects.filter(crag__in=crags)
+        .order_by("crag_id", "created_at", "pk")
+        .distinct("crag_id")
+    }
     for crag in crags:
         crag.community = averages.get(crag.pk, {})
         crag.comment_count = comment_counts.get(crag.pk, 0)
+        crag.cover_photo = cover_photos.get(crag.pk)
     areas = (
         Area.objects.filter(crags__status__in=Crag.PUBLIC_STATUSES)
         .distinct()

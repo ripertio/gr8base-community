@@ -22,6 +22,8 @@ We collect as little data as possible. There is no third-party tracking. Data is
 
 **Visitor counter.** Only if you accept in the cookie banner, and to count how many different people visit per day, we set a cookie that contains only the current date (and a marker if you were logged in) and expires at midnight. It prevents reloads from being counted twice. We store only two daily totals (all visitors, and visitors who were logged in), no IP address, user agent or other visitor data. If you decline, nothing is counted and the cookie is not set. Your choice is remembered in a cookie named `cookie_consent` for 180 days; you can change it at any time via "Cookie settings" in the footer.
 
+**Offline copies on your device.** So that crag pages can be read without mobile signal, your browser keeps copies of the pages you open (crag list, crag pages, help pages) and of the photos shown on them. These copies stay on your device and are never sent to us. Stored pages are deleted when you log in or out, and you can remove everything by clearing this site's data in your browser settings.
+
 **Server logs.** Our hosting and network infrastructure temporarily records technical data such as IP address, time of request, requested page, and browser type. This is needed to operate and secure the site.
 
 **Emails.** We send account-related emails (for example sign-up confirmation or password reset) through the transactional email provider Resend. If you submit a crag, we also email you when it is published or when the reviewers ask you for changes. The email contains the crag name, the outcome, the reviewers' reason (if any) and a link to the crag.
@@ -84,4 +86,4 @@ We use HTTPS, hashed passwords, CSRF protection, and regular updates of the soft
 
 We may update this policy when the site changes. The current version is always available on this page.
 
-Last updated: 15 October 2026
+Last updated: 12 November 2026

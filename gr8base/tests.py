@@ -81,3 +81,94 @@ class LoggingConfigTests(TestCase):
         # the console handlers stay, so `docker compose logs` keeps working
         self.assertIn("console", config["loggers"]["gunicorn.error"]["handlers"])
         self.assertIn("access_console", config["loggers"]["gunicorn.access"]["handlers"])
+
+
+class OfflineSupportTests(TestCase):
+    """Server side of the offline service worker (templates/sw.js)."""
+
+    @classmethod
+    def setUpTestData(cls):
+        from django.contrib.auth import get_user_model
+        from crags.models import Area, Crag
+
+        cls.user = get_user_model().objects.create_user("owner", "o@example.com", "pw-owner-123")
+        cls.crag = Crag.objects.create(
+            name="Offline crag", area=Area.objects.create(name="Area"),
+            created_by=cls.user, status=Crag.Status.PUBLISHED,
+        )
+
+    def get(self, url, **kwargs):
+        return self.client.get(url, secure=True, **kwargs)
+
+    def test_service_worker_is_served_from_root_without_caching(self):
+        response = self.get("/sw.js")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response["Content-Type"], "application/javascript")
+        self.assertEqual(response["Cache-Control"], "no-cache")
+        body = response.content.decode()
+        self.assertIn('const OFFLINE_URL = "/offline/";', body)
+        self.assertIn('const MARK = "X-Offline-Cache";', body)
+        self.assertIn(
+            f'const CLEAR_ON_POST = "{reverse("account_login")} {reverse("account_logout")}".split(" ");',
+            body,
+        )
+
+    def test_offline_page_is_standalone_without_user_data(self):
+        self.client.force_login(self.user)
+        response = self.get(reverse("offline"))
+        self.assertContains(response, "You are offline")
+        self.assertNotContains(response, "owner")
+        self.assertNotContains(response, "/static/")  # stored once: no hashed files
+
+    def test_pages_useful_offline_are_marked(self):
+        urls = [
+            reverse("home"),
+            reverse("crags:list"),
+            reverse("crags:detail", args=[self.crag.pk]),
+            reverse("docs"),
+            reverse("doc_page", args=["privacy"]),
+        ]
+        for url in urls:
+            with self.subTest(url=url):
+                response = self.get(url)
+                self.assertEqual(response.status_code, 200)
+                self.assertEqual(response["X-Offline-Cache"], "1")
+
+    def test_other_pages_are_never_marked(self):
+        self.client.force_login(self.user)
+        urls = [
+            reverse("crags:mine"),
+            reverse("crags:edit", args=[self.crag.pk]),
+            reverse("crags:create"),
+            reverse("account_login"),
+            reverse("stats:index"),
+            reverse("offline"),
+            "/sw.js",
+            reverse("crags:detail", args=[999999]),  # 404
+        ]
+        for url in urls:
+            with self.subTest(url=url):
+                self.assertNotIn("X-Offline-Cache", self.get(url))
+
+    def test_page_with_one_time_message_is_not_marked(self):
+        self.client.force_login(self.user)
+        # rating your own crag redirects to the crag page with an error message
+        response = self.client.post(
+            reverse("crags:rate", args=[self.crag.pk]), {"rating_babies": "3"},
+            secure=True, follow=True,
+        )
+        self.assertContains(response, "You cannot rate your own crag.")
+        self.assertNotIn("X-Offline-Cache", response)
+        # the message is gone on the next view, so that one may be stored
+        self.assertEqual(self.get(reverse("crags:detail", args=[self.crag.pk]))["X-Offline-Cache"], "1")
+
+    def test_every_page_registers_the_worker(self):
+        self.assertContains(self.get(reverse("crags:list")), 'navigator.serviceWorker.register("/sw.js")')
+
+    def test_worker_requests_are_not_counted_as_visits(self):
+        from stats.models import DailyHits
+
+        self.client.cookies["cookie_consent"] = "yes"
+        self.get("/sw.js")
+        self.get(reverse("offline"))
+        self.assertFalse(DailyHits.objects.exists())

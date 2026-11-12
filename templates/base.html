@@ -159,6 +159,14 @@
     <script src="{% static 'js/location-picker.js' %}" defer></script>
     <script src="{% static 'js/crag-filters.js' %}" defer></script>
     <script src="{% static 'js/guidebook-picker.js' %}" defer></script>
+    <script>
+        // Offline support: keeps visited crag pages readable without signal (templates/sw.js)
+        if ("serviceWorker" in navigator) {
+            window.addEventListener("load", function () {
+                navigator.serviceWorker.register("{% url 'service_worker' %}");
+            });
+        }
+    </script>
 </body>
 
 </html>

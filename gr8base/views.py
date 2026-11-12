@@ -6,8 +6,11 @@ from django.conf import settings
 from django.db import connection
 from django.http import Http404, HttpResponse
 from django.shortcuts import redirect, render
+from django.urls import reverse
 from django.utils.http import url_has_allowed_host_and_scheme
 from django.views.decorators.http import require_POST
+
+from .offline import OFFLINE_HEADER, offline_cacheable
 
 CONTENT_DIR = Path(settings.BASE_DIR) / "content"
 SLUG_PATTERN = re.compile(r"[-a-zA-Z0-9_]+")
@@ -68,6 +71,7 @@ def render_markdown(text):
     return md.convert(text), md.toc
 
 
+@offline_cacheable
 def doc_index(request):
     intro = None
     index_path = CONTENT_DIR / f"{INDEX_SLUG}.md"
@@ -91,6 +95,7 @@ def doc_index(request):
     return render(request, "docs.html", {"intro": intro, "pages": pages})
 
 
+@offline_cacheable
 def doc_page(request, slug):
     path = CONTENT_DIR / f"{slug}.md"
     if not path.is_file():
@@ -103,6 +108,26 @@ def doc_page(request, slug):
         "docs_page.html",
         {"title": page_title(path, body), "content": html, "toc": toc},
     )
+
+
+def service_worker(request):
+    """The offline service worker; must live at the site root to cover all pages."""
+    response = render(
+        request,
+        "sw.js",
+        {
+            "offline_url": reverse("offline"),
+            "header": OFFLINE_HEADER,
+            "clear_urls": f'{reverse("account_login")} {reverse("account_logout")}',
+        },
+        content_type="application/javascript",
+    )
+    response["Cache-Control"] = "no-cache"
+    return response
+
+
+def offline(request):
+    return render(request, "offline.html")
 
 
 def healthz(request):

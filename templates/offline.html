@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+{# Shown by the service worker for pages not saved on this device. Standalone on purpose:  #}
+{# it is stored once at install, so it must not contain user data or hashed static files. #}
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Offline – gr8base community</title>
+    <style>
+        :root { color-scheme: light dark; --fg: #1f2933; --muted: #5f6b76; --bg: #fff; --link: #0172ad; }
+        @media (prefers-color-scheme: dark) {
+            :root { --fg: #e3e8ee; --muted: #9aa5b1; --bg: #13171f; --link: #5aa9e6; }
+        }
+        body { margin: 0; padding: 3rem 1rem; background: var(--bg); color: var(--fg);
+               font: 1rem/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+        main { max-width: 32rem; margin: 0 auto; }
+        h1 { font-size: 1.5rem; margin: 0 0 1rem; }
+        p { color: var(--muted); }
+        a { color: var(--link); }
+    </style>
+</head>
+<body>
+    <main>
+        <h1>You are offline</h1>
+        <p>This page is not saved on this device yet.</p>
+        <p>Crags, the crag list and help pages you opened before still work without signal.</p>
+        <p><a href="{% url 'crags:list' %}">Go to the crag list</a> · <a href="javascript:history.back()">Back</a></p>
+    </main>
+</body>
+</html>

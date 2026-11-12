@@ -8,6 +8,8 @@ from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.views.decorators.http import require_POST
 
+from gr8base.offline import offline_cacheable
+
 from .forms import BulkPhotoForm, CragForm, process_image
 from .models import Area, Crag, CragComment, CragRating, Feature, InvalidTransition, Photo
 
@@ -82,6 +84,7 @@ APPROACH_CHOICES = (5, 10, 15, 20, 30)
 STROLLER_SLUG = "stroller_friendly"
 
 
+@offline_cacheable
 def crag_list(request):
     crags = Crag.objects.select_related("area").public()
     get = request.GET
@@ -217,6 +220,7 @@ def crag_list(request):
     return render(request, "crags/crag_list.html", context)
 
 
+@offline_cacheable
 def crag_detail(request, pk):
     crag = get_object_or_404(
         visible_crags(request.user).select_related("created_by").prefetch_related(

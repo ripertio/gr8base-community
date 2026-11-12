@@ -25,6 +25,9 @@ class ProfileTests(TestCase):
         cls.staff = User.objects.create_user(
             "staff", "staff@example.com", "pw-staff-123", is_staff=True
         )
+        cls.superuser = User.objects.create_superuser(
+            "root", "root@example.com", "pw-root-123"
+        )
         area = Area.objects.create(name="Test area")
         cls.public_crag = Crag.objects.create(
             name="Public crag", area=area, created_by=cls.alice, status=Crag.Status.PUBLISHED
@@ -39,10 +42,14 @@ class ProfileTests(TestCase):
         self.client.force_login(self.bob)
         self.assertEqual(self.client.get(self.url).status_code, 404)
 
-    def test_private_profile_visible_to_owner_and_staff(self):
-        for user in (self.alice, self.staff):
+    def test_private_profile_visible_to_owner_and_superuser(self):
+        for user in (self.alice, self.superuser):
             self.client.force_login(user)
             self.assertEqual(self.client.get(self.url).status_code, 200)
+
+    def test_private_profile_hidden_from_staff(self):
+        self.client.force_login(self.staff)
+        self.assertEqual(self.client.get(self.url).status_code, 404)
 
     def test_crag_detail_links_author_only_if_profile_public(self):
         detail = reverse("crags:detail", args=[self.public_crag.pk])

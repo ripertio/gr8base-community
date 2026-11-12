@@ -79,12 +79,14 @@
         {% endif %}
 
         <div class="actions">
-            <button type="submit" name="action" value="draft" class="secondary">
-                Save as draft
-            </button>
-            <button type="submit" name="action" value="submit">
-                Submit for review
-            </button>
+            {% if not hide_draft_and_submit %}
+                <button type="submit" name="action" value="draft" class="secondary">
+                    Save as draft
+                </button>
+                <button type="submit" name="action" value="submit">
+                    Submit for review
+                </button>
+            {% endif %}
             {% if can_publish %}
                 <button type="submit" name="action" value="publish">
                     Save and publish

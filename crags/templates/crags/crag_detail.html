@@ -21,7 +21,7 @@
     <p><mark>Status: {{ crag.get_status_display }}</mark></p>
 {% endif %}
 
-{% if can_edit or can_publish or can_return %}
+{% if can_edit or can_publish or can_return or can_reject %}
     <div class="actions">
         {% if can_edit %}
             <a href="{% url 'crags:edit' crag.pk %}" role="button" class="outline">Edit</a>
@@ -35,6 +35,13 @@
         {% if can_return %}
             <button type="button" class="outline secondary"
                     onclick="document.getElementById('return-dialog').showModal()">Needs changes</button>
+        {% endif %}
+        {% if can_reject %}
+            <form method="post" action="{% url 'crags:reject' crag.pk %}"
+                  onsubmit="return confirm('Reject this crag? Only a superuser can change its status afterwards.')">
+                {% csrf_token %}
+                <button type="submit" class="outline secondary">Reject</button>
+            </form>
         {% endif %}
     </div>
 {% endif %}

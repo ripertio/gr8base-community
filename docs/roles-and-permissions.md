@@ -27,6 +27,7 @@ A Crag Manager is therefore not a separate account type, but staff plus a group.
 | Publish, return or reject crags | no | yes | yes |
 | "Publish" button on the crag page and "Save and publish" on the edit page (any crag that is not published or rejected; no need to submit it first) | no | yes | yes |
 | "Needs changes" button with reason popup (pending or published crags) | no | yes | yes |
+| "Reject" button on the crag page (pending crags only, with confirmation) | no | yes | yes |
 | Hard delete crags | no | no | yes |
 | Restore removed crags | no | no | yes |
 | Change a crag to any status (see below) | no | no | yes |

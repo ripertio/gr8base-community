@@ -782,6 +782,70 @@ class CreatePublishTests(CragTestBase):
         self.assertFalse(Crag.objects.filter(name="Sneaky").exists())
 
 
+class RejectButtonTests(CragTestBase):
+    def manager(self):
+        user = User.objects.create_user("mgr", "m@example.com", "pw", is_staff=True)
+        user.groups.add(Group.objects.get(name="Crag Managers"))
+        return user
+
+    def test_button_with_confirmation_for_publishers_on_pending_only(self):
+        self.client.force_login(self.manager())
+        url = reverse("crags:reject", args=[self.pending.pk])
+        resp = self.client.get(reverse("crags:detail", args=[self.pending.pk]))
+        self.assertContains(resp, url)
+        self.assertContains(resp, "confirm(")
+        for crag in (self.draft, self.published):
+            resp = self.client.get(reverse("crags:detail", args=[crag.pk]))
+            self.assertNotContains(resp, reverse("crags:reject", args=[crag.pk]))
+
+    def test_button_hidden_for_plain_staff_and_owner(self):
+        for user in (self.staff, self.alice):
+            self.client.force_login(user)
+            resp = self.client.get(reverse("crags:detail", args=[self.pending.pk]))
+            self.assertNotContains(resp, reverse("crags:reject", args=[self.pending.pk]))
+
+    def test_reject_sets_status_and_audit_fields(self):
+        manager = self.manager()
+        self.client.force_login(manager)
+        self.client.post(reverse("crags:reject", args=[self.pending.pk]))
+        self.pending.refresh_from_db()
+        self.assertEqual(self.pending.status, Crag.Status.REJECTED)
+        self.assertEqual(self.pending.reviewed_by, manager)
+
+    def test_reject_requires_permission_and_pending_status(self):
+        for user in (self.staff, self.alice):
+            self.client.force_login(user)
+            resp = self.client.post(reverse("crags:reject", args=[self.pending.pk]))
+            self.assertEqual(resp.status_code, 403)
+        self.client.force_login(self.manager())
+        self.client.post(reverse("crags:reject", args=[self.published.pk]))
+        self.published.refresh_from_db()
+        self.assertEqual(self.published.status, Crag.Status.PUBLISHED)
+
+
+class PublisherEditPublishedTests(CragTestBase):
+    def test_publisher_on_published_crag_sees_only_the_publish_save(self):
+        manager = User.objects.create_user("mgr", "m@example.com", "pw", is_staff=True)
+        manager.groups.add(Group.objects.get(name="Crag Managers"))
+        self.client.force_login(manager)
+        resp = self.client.get(reverse("crags:edit", args=[self.published.pk]))
+        self.assertContains(resp, "Save and publish")
+        self.assertNotContains(resp, "Save as draft")
+        self.assertNotContains(resp, "Submit for review")
+
+    def test_other_cases_keep_the_normal_buttons(self):
+        manager = User.objects.create_user("mgr", "m@example.com", "pw", is_staff=True)
+        manager.groups.add(Group.objects.get(name="Crag Managers"))
+        self.client.force_login(manager)  # publisher on a pending crag
+        resp = self.client.get(reverse("crags:edit", args=[self.pending.pk]))
+        self.assertContains(resp, "Save as draft")
+        self.assertContains(resp, "Submit for review")
+        self.client.force_login(self.alice)  # owner of a published crag
+        resp = self.client.get(reverse("crags:edit", args=[self.published.pk]))
+        self.assertContains(resp, "Save as draft")
+        self.assertContains(resp, "Submit for review")
+
+
 class ReturnButtonTests(CragTestBase):
     def manager(self):
         user = User.objects.create_user("mgr", "m@example.com", "pw", is_staff=True)

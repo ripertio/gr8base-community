@@ -35,6 +35,14 @@ def can_return_now(user, crag):
     )
 
 
+def can_reject_now(user, crag):
+    """"Reject" button: the user may publish/return/reject and the move is allowed."""
+    return (
+        user.has_perm(PUBLISH_PERM)
+        and Crag.Status.REJECTED in crag.ALLOWED_TRANSITIONS[crag.status]
+    )
+
+
 def reason_error(reason):
     if len((reason or "").strip()) < Crag.MIN_REASON_LENGTH:
         return f"Please give a reason of at least {Crag.MIN_REASON_LENGTH} characters."
@@ -237,6 +245,7 @@ def crag_detail(request, pk):
             "can_edit": can_edit,
             "can_publish": can_publish_now(request.user, crag),
             "can_return": can_return_now(request.user, crag),
+            "can_reject": can_reject_now(request.user, crag),
             "min_reason_length": Crag.MIN_REASON_LENGTH,
             "community": community,
             "can_rate": can_rate,
@@ -531,6 +540,10 @@ def crag_edit(request, pk):
             ),
             "can_return": can_return_now(request.user, crag),
             "min_reason_length": Crag.MIN_REASON_LENGTH,
+            # publishers editing a published crag only need "Save and publish":
+            # "Submit for review" would take the crag offline again
+            "hide_draft_and_submit": request.user.has_perm(PUBLISH_PERM)
+            and crag.status == Crag.Status.PUBLISHED,
             "can_remove": removable_crags(request.user).filter(pk=crag.pk).exists(),
         },
     )
@@ -610,6 +623,23 @@ def crag_publish(request, pk):
     else:
         logger.info("crag published id=%s user=%s", crag.pk, request.user.pk)
         messages.success(request, f"Crag \u201c{crag.name}\u201d published.")
+    return redirect("crags:detail", pk=crag.pk)
+
+
+@login_required
+@require_POST
+def crag_reject(request, pk):
+    """Reject a pending crag (final; only a superuser can change the status again)."""
+    if not request.user.has_perm(PUBLISH_PERM):
+        raise PermissionDenied
+    crag = get_object_or_404(Crag, pk=pk)
+    try:
+        crag.transition(Crag.Status.REJECTED, request.user)
+    except (InvalidTransition, ValidationError) as exc:
+        messages.error(request, exc.messages[0] if hasattr(exc, "messages") else str(exc))
+    else:
+        logger.info("crag rejected id=%s user=%s", crag.pk, request.user.pk)
+        messages.success(request, f"Crag \u201c{crag.name}\u201d rejected.")
     return redirect("crags:detail", pk=crag.pk)
 
 

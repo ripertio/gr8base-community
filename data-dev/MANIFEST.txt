@@ -1,10 +1,10 @@
-exported_at: 2026-11-06T13:17:39Z
-git_commit: 4c8e259
-source: local dev database (production copy of 2026-10-24 plus guidebooks; dev-root user, no sessions or stats)
+exported_at: 2026-11-12T14:34:06Z
+git_commit: b601a4e
+source: local dev database (production copy of 2026-10-24 plus guidebooks; dev-root user, no sessions or stats); 2026-11-12 migrated to crags 0020 with photo thumbnails
 crags: 6
 dev_users: dev-root, author, dummy1, dummy2 (also created by load-devdata.sh)
 sample_data: 2 ratings and 3 comments on Kesselwand / Arena (dummy1, dummy2, author)
-photos: 16 (missing: 0)
+photos: 16 (missing: 0; thumbnails: 16, in media/crags/thumbs)
 guidebooks: 2 (covers: 1, in media/guidebooks)
 last_migrations:
   account 0009_emailaddress_unique_primary_email
@@ -12,6 +12,6 @@ last_migrations:
   admin 0003_logentry_add_action_flag_choices
   auth 0012_alter_user_first_name_max_length
   contenttypes 0002_remove_content_type_name
-  crags 0016_cragcomment
+  crags 0020_photo_thumbnail
   sessions 0001_initial
   stats 0002_dailyhits_logged_in_count

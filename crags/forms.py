@@ -1,12 +1,13 @@
 import io
 import logging
+import math
 import re
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 
 from django import forms
 from django.core.exceptions import ValidationError
 from django.core.files.base import ContentFile
-from PIL import Image, ImageOps, UnidentifiedImageError
+from PIL import ExifTags, Image, ImageOps, UnidentifiedImageError
 import pillow_heif
 
 from .models import Area, Crag, Feature, Guidebook, Photo
@@ -102,6 +103,77 @@ def process_image(upload, max_edge=MAX_EDGE):
     return ContentFile(buffer.getvalue(), name="photo.webp")
 
 
+def _gps_degrees(dms, ref, positive, negative):
+    """Turn an EXIF (degrees, minutes, seconds) triple and its N/S/E/W ref into a float."""
+    if isinstance(ref, bytes):
+        ref = ref.decode("ascii", "ignore")
+    ref = (ref or "").strip("\x00 ").upper()
+    if ref not in (positive, negative):
+        return None
+    if not isinstance(dms, (tuple, list)) or len(dms) != 3:
+        return None
+    degrees, minutes, seconds = (float(part) for part in dms)
+    if not all(math.isfinite(part) and part >= 0 for part in (degrees, minutes, seconds)):
+        return None  # e.g. a rational with denominator 0
+    value = degrees + minutes / 60 + seconds / 3600
+    return -value if ref == negative else value
+
+
+def read_gps_coordinates(upload):
+    """Return (latitude, longitude) from the photo's EXIF GPS block, or None.
+
+    Reads the original upload, before process_image() re-encodes it and drops
+    the metadata. The position is only returned, never stored with the photo.
+    Missing, 0/0 and out-of-range positions return None. Never raises.
+    """
+    if upload.size > MAX_UPLOAD_BYTES:
+        return None
+    try:
+        upload.seek(0)
+        with Image.open(upload) as img:
+            if img.format not in ALLOWED_FORMATS:
+                return None
+            gps = img.getexif().get_ifd(ExifTags.IFD.GPSInfo)
+        latitude = _gps_degrees(
+            gps.get(ExifTags.GPS.GPSLatitude), gps.get(ExifTags.GPS.GPSLatitudeRef),
+            "N", "S",
+        )
+        longitude = _gps_degrees(
+            gps.get(ExifTags.GPS.GPSLongitude), gps.get(ExifTags.GPS.GPSLongitudeRef),
+            "E", "W",
+        )
+        if latitude is None or longitude is None:
+            return None
+        # Check the range here: parse_coordinates() searches the text, so
+        # "123.0" would otherwise be read as "23.0".
+        if not -90 <= latitude <= 90 or not -180 <= longitude <= 180:
+            return None
+        latitude, longitude = parse_coordinates(f"{latitude:.6f}, {longitude:.6f}")
+    except Exception as exc:  # broken metadata must never block an upload
+        logger.debug("photo GPS unreadable (%s)", type(exc).__name__)
+        return None
+    finally:
+        upload.seek(0)
+
+    if latitude == 0 and longitude == 0:
+        return None  # what many cameras write when they have no fix
+    return latitude, longitude
+
+
+def coordinates_from_photos(uploads, category):
+    """Return the GPS position of the first upload that has one, or None.
+
+    Parking photos are skipped: their position is the car park, not the crag.
+    """
+    if category == Photo.Category.PARKING:
+        return None
+    for upload in uploads:
+        coordinates = read_gps_coordinates(upload)
+        if coordinates is not None:
+            return coordinates
+    return None
+
+
 class BulkPhotoForm(forms.Form):
     category = forms.ChoiceField(
         choices=Photo.Category.choices,
@@ -116,7 +188,9 @@ class CragForm(forms.ModelForm):
         label="Crag coordinates",
         help_text=(
             "Google Maps link or coordinates, e.g. 47.123456, 10.123456. "
-            "Short links are not supported."
+            "Short links are not supported. If you leave this empty, it is "
+            "filled from the location of your first crag photo, if it has one. "
+            "On iPhone, choose “Options” and turn on “Location” when picking photos."
         ),
     )
     parking = forms.CharField(
@@ -298,6 +372,11 @@ class CragForm(forms.ModelForm):
             except ValidationError as exc:
                 self.add_error("new_guidebook_picture", exc)
         return cleaned
+
+    @property
+    def has_coordinates(self):
+        """True if the user entered coordinates (only valid after is_valid())."""
+        return self._coordinates != (None, None)
 
     def _create_new_guidebook(self):
         """Return the guidebook named in the "add new" block, creating it if needed."""

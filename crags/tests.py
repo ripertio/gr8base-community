@@ -2395,3 +2395,78 @@ class ModerationReturnTests(CragTestBase):
         with_target = self.client.get(self.detail(self.published, "/"))
         self.assertEqual(plain["X-Offline-Cache"], "1")
         self.assertNotIn("X-Offline-Cache", with_target)
+
+
+class SearchSuggestionTests(CragTestBase):
+    """Data and markup for the type-ahead fields (static/js/suggest.js and its users)."""
+
+    def suggestions(self):
+        response = self.client.get(reverse("crags:suggestions"))
+        self.assertEqual(response.status_code, 200)
+        return response
+
+    def test_endpoint_lists_public_crags_and_their_areas(self):
+        Area.objects.create(name="Empty area")  # no public crag: not suggested
+        self.assertEqual(
+            self.suggestions().json(),
+            {
+                "areas": ["Allgau"],
+                "crags": [
+                    {
+                        "name": "Public",
+                        "area": "Allgau",
+                        "url": reverse("crags:detail", args=[self.published.pk]),
+                    },
+                    {  # pending crags are listed publicly too, with a label
+                        "name": "Waiting",
+                        "area": "Allgau",
+                        "url": reverse("crags:detail", args=[self.pending.pk]),
+                    },
+                ],
+            },
+        )
+
+    def test_endpoint_hides_drafts_even_from_their_owner(self):
+        self.client.force_login(self.alice)
+        names = [crag["name"] for crag in self.suggestions().json()["crags"]]
+        self.assertNotIn("Draft entry", names)
+
+    def test_endpoint_is_cached_privately_for_a_few_minutes(self):
+        cache = self.suggestions()["Cache-Control"]
+        self.assertIn("private", cache)
+        self.assertIn("max-age=300", cache)
+
+    def test_list_page_does_not_embed_all_crag_names(self):
+        response = self.client.get(reverse("crags:list"), {"q": "nothing"})
+        self.assertNotContains(response, "Public")
+        self.assertContains(
+            response, f'data-crag-search="{reverse("crags:suggestions")}"'
+        )
+
+    def test_crag_form_groups_area_fields_for_the_picker(self):
+        self.client.force_login(self.alice)
+        content = self.client.get(reverse("crags:create")).content.decode()
+        picker = content.index("<div data-area-picker>")
+        self.assertLess(picker, content.index('name="area"'))
+        self.assertLess(content.index('name="area"'), content.index('name="new_area"'))
+        self.assertEqual(content.count('name="new_area"'), 1)
+        # nothing else between the two fields
+        between = content[content.index('name="area"'):content.index('name="new_area"')]
+        self.assertNotIn('name="', between.replace('name="area"', "", 1))
+
+    def test_area_options_are_sorted_by_name(self):
+        Area.objects.create(name="Zillertal")
+        Area.objects.create(name="Allgäu Ost")
+        self.client.force_login(self.alice)
+        content = self.client.get(reverse("crags:create")).content.decode()
+        names = re.findall(r'<option value="\d+"[^>]*>([^<]+)</option>', content)
+        area_names = [n for n in names if n in {"Allgau", "Allgäu Ost", "Zillertal"}]
+        self.assertEqual(area_names, ["Allgau", "Allgäu Ost", "Zillertal"])
+
+    def test_scripts_load_shared_suggest_first(self):
+        content = self.client.get(reverse("crags:list")).content.decode()
+        positions = [
+            content.index(f"js/{name}.js")
+            for name in ("suggest", "guidebook-picker", "area-picker", "crag-search")
+        ]
+        self.assertEqual(positions, sorted(positions))

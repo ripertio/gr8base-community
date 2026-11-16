@@ -4,9 +4,11 @@ from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.db.models import Avg, Count, Q
+from django.http import JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.utils.http import url_has_allowed_host_and_scheme, urlencode
+from django.views.decorators.cache import cache_control
 from django.views.decorators.http import require_POST
 
 from gr8base.offline import offline_cacheable
@@ -17,6 +19,7 @@ from .models import Area, Crag, CragComment, CragRating, Feature, InvalidTransit
 logger = logging.getLogger(__name__)
 
 MAX_PHOTOS_PER_CRAG = 8
+SUGGESTIONS_MAX_AGE = 300  # seconds; new crags show up in suggestions after this
 MAX_FILES_PER_UPLOAD = 8
 
 PUBLISH_PERM = "crags.can_publish_crag"
@@ -215,7 +218,7 @@ def crag_list(request):
         crag.community = averages.get(crag.pk, {})
         crag.comment_count = comment_counts.get(crag.pk, 0)
         crag.cover_photo = cover_photos.get(crag.pk)
-    areas = (
+    areas = list(
         Area.objects.filter(crags__status__in=Crag.PUBLIC_STATUSES)
         .distinct()
         .order_by("name")
@@ -252,6 +255,33 @@ def crag_list(request):
         "filters_open": bool(active_filters) or "f" in get,
     }
     return render(request, "crags/crag_list.html", context)
+
+
+@cache_control(private=True, max_age=SUGGESTIONS_MAX_AGE)
+def crag_suggestions(request):
+    """Names for the search box's type-ahead (static/js/crag-search.js).
+
+    All public crags and their areas, fetched once when the search box is first
+    used, so the list page itself stays small. Only public data, so the browser
+    may keep it for a few minutes ("private": not shared caches, since the
+    response can carry cookies).
+    """
+    crags = Crag.objects.public().order_by("name").values_list("pk", "name", "area__name")
+    areas = (
+        Area.objects.filter(crags__status__in=Crag.PUBLIC_STATUSES)
+        .distinct()
+        .order_by("name")
+        .values_list("name", flat=True)
+    )
+    return JsonResponse(
+        {
+            "areas": list(areas),
+            "crags": [
+                {"name": name, "area": area, "url": reverse("crags:detail", args=[pk])}
+                for pk, name, area in crags
+            ],
+        }
+    )
 
 
 @offline_cacheable

@@ -6,6 +6,7 @@ from django.core.exceptions import PermissionDenied, ValidationError
 from django.db.models import Avg, Count, Q
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
+from django.utils.http import url_has_allowed_host_and_scheme, urlencode
 from django.views.decorators.http import require_POST
 
 from gr8base.offline import offline_cacheable
@@ -19,6 +20,29 @@ MAX_PHOTOS_PER_CRAG = 8
 MAX_FILES_PER_UPLOAD = 8
 
 PUBLISH_PERM = "crags.can_publish_crag"
+
+
+def return_target(request):
+    """The page to go back to after an action, e.g. the moderation queue, or "".
+
+    Passed along as ``next`` (query string or hidden field); only local URLs count.
+    """
+    target = request.POST.get("next") or request.GET.get("next") or ""
+    if url_has_allowed_host_and_scheme(
+        target, allowed_hosts={request.get_host()}, require_https=request.is_secure()
+    ):
+        return target
+    return ""
+
+
+def with_next(url, target):
+    """Append ``?next=target`` to url, so the following page can return there."""
+    return f"{url}?{urlencode({'next': target})}" if target else url
+
+
+def detail_url(crag, request):
+    """The crag page, keeping the return target (used when an action failed)."""
+    return with_next(reverse("crags:detail", args=[crag.pk]), return_target(request))
 
 
 def report_photo_coordinates(request, crag):
@@ -269,6 +293,7 @@ def crag_detail(request, pk):
             "can_return": can_return_now(request.user, crag),
             "can_reject": can_reject_now(request.user, crag),
             "min_reason_length": Crag.MIN_REASON_LENGTH,
+            "next": return_target(request),
             "community": community,
             "can_rate": can_rate,
             "my_rating": my_rating,
@@ -553,7 +578,7 @@ def crag_edit(request, pk):
                     messages.success(request, f"Uploaded {len(converted)} photo(s).")
                 if photo_coordinates:
                     report_photo_coordinates(request, crag)
-                return redirect("crags:detail", pk=crag.pk)
+                return redirect(return_target(request) or detail_url(crag, request))
     else:
         form = CragForm(instance=crag)
         photo_form = BulkPhotoForm()
@@ -588,6 +613,7 @@ def crag_edit(request, pk):
             "hide_draft_and_submit": request.user.has_perm(PUBLISH_PERM)
             and crag.status == Crag.Status.PUBLISHED,
             "can_remove": removable_crags(request.user).filter(pk=crag.pk).exists(),
+            "next": return_target(request),
         },
     )
 
@@ -676,7 +702,8 @@ def crag_publish(request, pk):
     else:
         logger.info("crag published id=%s user=%s", crag.pk, request.user.pk)
         messages.success(request, f"Crag \u201c{crag.name}\u201d published.")
-    return redirect("crags:detail", pk=crag.pk)
+        return redirect(return_target(request) or detail_url(crag, request))
+    return redirect(detail_url(crag, request))
 
 
 @login_required
@@ -693,7 +720,8 @@ def crag_reject(request, pk):
     else:
         logger.info("crag rejected id=%s user=%s", crag.pk, request.user.pk)
         messages.success(request, f"Crag \u201c{crag.name}\u201d rejected.")
-    return redirect("crags:detail", pk=crag.pk)
+        return redirect(return_target(request) or detail_url(crag, request))
+    return redirect(detail_url(crag, request))
 
 
 @login_required
@@ -707,7 +735,7 @@ def crag_return(request, pk):
     error = reason_error(reason)
     if error:
         messages.error(request, error)
-        return redirect("crags:detail", pk=crag.pk)
+        return redirect(detail_url(crag, request))
     try:
         crag.transition(Crag.Status.NEEDS_CHANGES, request.user, reason)
     except (InvalidTransition, ValidationError) as exc:
@@ -715,7 +743,8 @@ def crag_return(request, pk):
     else:
         logger.info("crag returned id=%s user=%s", crag.pk, request.user.pk)
         messages.success(request, f"Crag \u201c{crag.name}\u201d sent back to the submitter.")
-    return redirect("crags:detail", pk=crag.pk)
+        return redirect(return_target(request) or detail_url(crag, request))
+    return redirect(detail_url(crag, request))
 
 
 @login_required
@@ -726,7 +755,7 @@ def crag_delete(request, pk):
     crag.transition(Crag.Status.REMOVED, request.user)
     logger.info("crag removed id=%s user=%s", crag.pk, request.user.pk)
     messages.success(request, f"Crag \u201c{crag.name}\u201d removed.")
-    return redirect("crags:mine")
+    return redirect(return_target(request) or "crags:mine")
 
 
 @login_required
@@ -742,6 +771,5 @@ def photo_delete(request, pk):
         "photo deleted id=%s crag=%s user=%s", photo_pk, crag_pk, request.user.pk
     )
     messages.success(request, "Photo deleted.")
-    if request.POST.get("next") == "edit":
-        return redirect("crags:edit", pk=crag_pk)
-    return redirect("crags:detail", pk=crag_pk)
+    # from the edit page, next is the edit page itself (with its own return target)
+    return redirect(return_target(request) or reverse("crags:detail", args=[crag_pk]))

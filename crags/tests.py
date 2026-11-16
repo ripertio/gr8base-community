@@ -16,6 +16,7 @@ from django.test import SimpleTestCase, TestCase, override_settings
 from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
 from django.utils import timezone
+from django.utils.http import urlencode
 from PIL import ExifTags, Image
 from PIL.TiffImagePlugin import IFDRational
 
@@ -2261,3 +2262,136 @@ class PrivacyPageGpsTests(TestCase):
     def test_privacy_page_describes_photo_location_prefill(self):
         response = self.client.get("/docs/privacy/")
         self.assertContains(response, "used to fill in the crag coordinates")
+
+
+class ModerationReturnTests(CragTestBase):
+    """Actions started from the moderation queue go back to the queue (with its filter)."""
+
+    QUEUE = "/moderation/?status=PENDING&status=NEEDS_CHANGES"
+
+    def setUp(self):
+        self.manager = User.objects.create_user("mgr", "m@example.com", "pw", is_staff=True)
+        self.manager.groups.add(Group.objects.get(name="Crag Managers"))
+        self.client.force_login(self.manager)
+
+    def detail(self, crag, next_url=None):
+        url = reverse("crags:detail", args=[crag.pk])
+        return f"{url}?{urlencode({'next': next_url})}" if next_url else url
+
+    def test_queue_links_to_crag_with_queue_as_return_target(self):
+        response = self.client.get(self.QUEUE)
+        self.assertContains(
+            response,
+            f'href="{self.detail(self.pending, self.QUEUE)}"'.replace("&", "&amp;"),
+        )
+
+    def test_detail_carries_return_target_into_actions(self):
+        response = self.client.get(self.detail(self.pending, self.QUEUE))
+        escaped = self.QUEUE.replace("&", "&amp;")
+        self.assertContains(response, f'<a href="{escaped}">← Back</a>', html=True)
+        self.assertContains(response, f'name="next" value="{escaped}"', count=3)  # publish, reject, return
+        edit = reverse("crags:edit", args=[self.pending.pk])
+        self.assertContains(response, f"{edit}?{urlencode({'next': self.QUEUE})}")
+
+    def test_detail_without_return_target_has_no_back_link(self):
+        response = self.client.get(self.detail(self.pending))
+        self.assertNotContains(response, "← Back")
+        self.assertNotContains(response, 'name="next" value="/moderation')
+        self.assertContains(response, f'href="{reverse("crags:edit", args=[self.pending.pk])}"')
+
+    def test_publish_returns_to_queue(self):
+        response = self.client.post(
+            reverse("crags:publish", args=[self.pending.pk]), {"next": self.QUEUE}
+        )
+        self.assertRedirects(response, self.QUEUE)
+        self.pending.refresh_from_db()
+        self.assertEqual(self.pending.status, Crag.Status.PUBLISHED)
+
+    def test_reject_returns_to_queue(self):
+        response = self.client.post(
+            reverse("crags:reject", args=[self.pending.pk]), {"next": self.QUEUE}
+        )
+        self.assertRedirects(response, self.QUEUE)
+
+    def test_return_returns_to_queue(self):
+        response = self.client.post(
+            reverse("crags:return", args=[self.pending.pk]),
+            {"next": self.QUEUE, "reason": "Please add the approach details."},
+        )
+        self.assertRedirects(response, self.QUEUE)
+
+    def test_failed_return_stays_on_crag_and_keeps_target(self):
+        response = self.client.post(
+            reverse("crags:return", args=[self.pending.pk]),
+            {"next": self.QUEUE, "reason": "short"},
+        )
+        self.assertRedirects(response, self.detail(self.pending, self.QUEUE))
+
+    def test_failed_publish_stays_on_crag_and_keeps_target(self):
+        rejected = Crag.objects.create(
+            name="Gone", area=self.area, created_by=self.alice, status=Crag.Status.REJECTED,
+        )
+        response = self.client.post(
+            reverse("crags:publish", args=[rejected.pk]), {"next": self.QUEUE}
+        )
+        self.assertRedirects(response, self.detail(rejected, self.QUEUE))
+
+    def test_edit_returns_to_queue(self):
+        edit = reverse("crags:edit", args=[self.pending.pk])
+        page = self.client.get(f"{edit}?{urlencode({'next': self.QUEUE})}")
+        self.assertContains(
+            page, f'name="next" value="{self.QUEUE}"'.replace("&", "&amp;")
+        )
+        response = self.client.post(
+            edit, form_data(self.area, name="Waiting", next=self.QUEUE)
+        )
+        self.assertRedirects(response, self.QUEUE)
+
+    def test_edit_with_errors_keeps_target(self):
+        edit = reverse("crags:edit", args=[self.pending.pk])
+        response = self.client.post(
+            edit, form_data(self.area, name="", next=self.QUEUE)
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(
+            response, f'name="next" value="{self.QUEUE}"'.replace("&", "&amp;")
+        )
+
+    def test_remove_returns_to_queue(self):
+        superuser = User.objects.create_superuser("root", "r@example.com", "pw")
+        self.client.force_login(superuser)
+        response = self.client.post(
+            reverse("crags:delete", args=[self.pending.pk]), {"next": self.QUEUE}
+        )
+        self.assertRedirects(response, self.QUEUE)
+
+    def test_photo_delete_on_edit_page_keeps_target(self):
+        with tempfile.TemporaryDirectory() as media_root, override_settings(MEDIA_ROOT=media_root):
+            photo = Photo.objects.create(
+                crag=self.pending, image=image_upload("p.jpg"),
+                category=Photo.Category.CRAG, uploaded_by=self.alice,
+            )
+            edit = reverse("crags:edit", args=[self.pending.pk])
+            edit_with_next = f"{edit}?{urlencode({'next': self.QUEUE})}"
+            response = self.client.post(
+                reverse("crags:photo_delete", args=[photo.pk]), {"next": edit_with_next}
+            )
+        self.assertRedirects(response, edit_with_next)
+
+    def test_external_target_is_ignored(self):
+        response = self.client.post(
+            reverse("crags:publish", args=[self.pending.pk]),
+            {"next": "https://evil.example/"},
+        )
+        self.assertRedirects(response, self.detail(self.pending))
+
+    def test_without_target_actions_go_to_crag_page(self):
+        response = self.client.post(reverse("crags:publish", args=[self.pending.pk]))
+        self.assertRedirects(response, self.detail(self.pending))
+
+    def test_detail_with_target_is_not_stored_offline(self):
+        self.client.logout()
+        plain = self.client.get(self.detail(self.published))
+        with_target = self.client.get(self.detail(self.published, "/"))
+        self.assertEqual(plain["X-Offline-Cache"], "1")
+        self.assertNotIn("X-Offline-Cache", with_target)

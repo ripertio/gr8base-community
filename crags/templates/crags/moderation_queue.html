@@ -21,7 +21,7 @@
 {% for crag in crags %}
     <article>
         <header class="status-header">
-            <a href="{% url 'crags:detail' crag.pk %}">{{ crag.name }}</a>
+            <a href="{% url 'crags:detail' crag.pk %}?next={{ request.get_full_path|urlencode:'' }}">{{ crag.name }}</a>
             <ul class="chips"><li class="chip">{{ crag.get_status_display }}</li></ul>
         </header>
         <p>

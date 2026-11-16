@@ -3,6 +3,7 @@ import os
 import re
 import tempfile
 from datetime import timedelta
+from decimal import Decimal
 
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import Group
@@ -15,9 +16,13 @@ from django.test import SimpleTestCase, TestCase, override_settings
 from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
 from django.utils import timezone
-from PIL import Image
+from PIL import ExifTags, Image
+from PIL.TiffImagePlugin import IFDRational
 
-from .forms import MAX_EDGE, MAX_UPLOAD_BYTES, process_image
+from .forms import (
+    MAX_EDGE, MAX_UPLOAD_BYTES, coordinates_from_photos, process_image,
+    read_gps_coordinates,
+)
 from .models import (
     THUMBNAIL_EDGE, Area, Crag, InvalidTransition, CragComment, CragRating, Feature,
     Guidebook, Photo,
@@ -2009,3 +2014,250 @@ class ReviewQueueAdminTests(CragTestBase):
         self.assertEqual([c.name for c in rows], ["Waiting", "Newer"])
         self.assertEqual([c._photo_count for c in rows], [0, 2])
         self.assertNotContains(response, "Draft entry")
+
+
+def gps_exif(latitude=(47, 30, 0), longitude=(10, 15, 0), lat_ref="N", lon_ref="E"):
+    """EXIF bytes with a GPS block; 47.5 N, 10.25 E by default."""
+    exif = Image.Exif()
+    gps = {}
+    if lat_ref is not None:
+        gps[ExifTags.GPS.GPSLatitudeRef] = lat_ref
+    if lon_ref is not None:
+        gps[ExifTags.GPS.GPSLongitudeRef] = lon_ref
+    gps[ExifTags.GPS.GPSLatitude] = tuple(
+        part if isinstance(part, IFDRational) else IFDRational(part) for part in latitude
+    )
+    gps[ExifTags.GPS.GPSLongitude] = tuple(
+        part if isinstance(part, IFDRational) else IFDRational(part) for part in longitude
+    )
+    exif[ExifTags.IFD.GPSInfo] = gps
+    return exif.tobytes()
+
+
+def gps_upload(name="gps.jpg", fmt="JPEG", **gps):
+    buffer = io.BytesIO()
+    Image.new("RGB", (64, 48), "red").save(buffer, format=fmt, exif=gps_exif(**gps))
+    content_type = "image/heic" if fmt == "HEIF" else "image/jpeg"
+    return SimpleUploadedFile(name, buffer.getvalue(), content_type=content_type)
+
+
+PHOTO_POSITION = (Decimal("47.500000"), Decimal("10.250000"))
+PHOTO_COORDINATES_MESSAGE = "The crag coordinates were taken from the location of a photo."
+
+
+class ReadGpsCoordinatesTests(SimpleTestCase):
+    def test_jpeg_with_gps(self):
+        self.assertEqual(read_gps_coordinates(gps_upload()), PHOTO_POSITION)
+
+    def test_south_and_west_are_negative(self):
+        upload = gps_upload(
+            latitude=(33, 51, 54), longitude=(151, 12, 36), lat_ref="S", lon_ref="W"
+        )
+        self.assertEqual(
+            read_gps_coordinates(upload), (Decimal("-33.865000"), Decimal("-151.210000"))
+        )
+
+    def test_rounded_to_six_decimals(self):
+        upload = gps_upload(latitude=(47, 0, IFDRational(1, 7)))
+        latitude, _ = read_gps_coordinates(upload)
+        self.assertEqual(latitude, Decimal("47.000040"))
+
+    def test_heic_with_gps(self):
+        try:
+            upload = gps_upload("gps.heic", fmt="HEIF")
+        except Exception as exc:  # no HEIF encoder in this build
+            self.skipTest(f"cannot encode HEIF: {exc}")
+        self.assertEqual(read_gps_coordinates(upload), PHOTO_POSITION)
+
+    def test_no_gps(self):
+        self.assertIsNone(read_gps_coordinates(image_upload("plain.jpg")))
+
+    def test_zero_zero_is_ignored(self):
+        upload = gps_upload(latitude=(0, 0, 0), longitude=(0, 0, 0))
+        self.assertIsNone(read_gps_coordinates(upload))
+
+    def test_out_of_range_latitude_is_ignored(self):
+        self.assertIsNone(read_gps_coordinates(gps_upload(latitude=(95, 0, 0))))
+
+    def test_out_of_range_longitude_is_ignored(self):
+        # 3 digits: must not be cut to "23.0" by the coordinate regex
+        self.assertIsNone(read_gps_coordinates(gps_upload(latitude=(123, 0, 0))))
+        self.assertIsNone(read_gps_coordinates(gps_upload(longitude=(181, 0, 0))))
+
+    def test_zero_denominator_is_ignored(self):
+        upload = gps_upload(latitude=(IFDRational(47, 0), 0, 0))
+        self.assertIsNone(read_gps_coordinates(upload))
+
+    def test_missing_or_bad_reference_is_ignored(self):
+        self.assertIsNone(read_gps_coordinates(gps_upload(lat_ref=None)))
+        self.assertIsNone(read_gps_coordinates(gps_upload(lon_ref="X")))
+
+    def test_unreadable_file_returns_none(self):
+        upload = SimpleUploadedFile("x.jpg", b"not an image", content_type="image/jpeg")
+        self.assertIsNone(read_gps_coordinates(upload))
+
+    def test_upload_is_rewound_for_processing(self):
+        upload = gps_upload()
+        read_gps_coordinates(upload)
+        self.assertEqual(upload.tell(), 0)
+        process_image(upload)
+
+    def test_processed_photo_has_no_location(self):
+        content = process_image(gps_upload())
+        result = Image.open(io.BytesIO(content.read()))
+        self.assertEqual(result.getexif().get_ifd(ExifTags.IFD.GPSInfo), {})
+        self.assertNotIn("exif", result.info)
+
+    def test_first_photo_with_gps_wins(self):
+        uploads = [
+            image_upload("plain.jpg"),
+            gps_upload("first.jpg"),
+            gps_upload("second.jpg", latitude=(46, 0, 0)),
+        ]
+        self.assertEqual(
+            coordinates_from_photos(uploads, Photo.Category.CRAG), PHOTO_POSITION
+        )
+
+    def test_parking_photos_are_skipped(self):
+        self.assertIsNone(
+            coordinates_from_photos([gps_upload()], Photo.Category.PARKING)
+        )
+
+
+class PhotoCoordinatesPrefillTests(CragTestBase):
+    def setUp(self):
+        media_root = tempfile.TemporaryDirectory()
+        self.addCleanup(media_root.cleanup)
+        settings = override_settings(MEDIA_ROOT=media_root.name)
+        settings.enable()
+        self.addCleanup(settings.disable)
+        self.client.force_login(self.alice)
+
+    def create(self, category=Photo.Category.CRAG, images=None, **overrides):
+        return self.client.post(
+            reverse("crags:create"),
+            {
+                **form_data(self.area, name="Photo crag", **overrides),
+                "category": category,
+                "images": images if images is not None else [gps_upload()],
+            },
+            follow=True,
+        )
+
+    def add_photos(self, crag, category=Photo.Category.CRAG, images=None):
+        return self.client.post(
+            reverse("crags:photo_add", args=[crag.pk]),
+            {"category": category, "images": images or [gps_upload()]},
+            follow=True,
+        )
+
+    def edit(self, crag, location="", category=Photo.Category.CRAG):
+        return self.client.post(
+            reverse("crags:edit", args=[crag.pk]),
+            {
+                **form_data(self.area, name=crag.name, location=location),
+                "category": category,
+                "images": [gps_upload()],
+            },
+            follow=True,
+        )
+
+    def position(self, crag):
+        crag.refresh_from_db()
+        return crag.latitude, crag.longitude
+
+    def test_create_fills_coordinates_from_photo(self):
+        with self.assertLogs("crags.views", "INFO") as logs:
+            response = self.create()
+        crag = Crag.objects.get(name="Photo crag")
+        self.assertEqual(self.position(crag), PHOTO_POSITION)
+        self.assertContains(response, PHOTO_COORDINATES_MESSAGE)
+        self.assertIn(
+            f"crag coordinates from photo crag={crag.pk} user={self.alice.pk}",
+            "\n".join(logs.output),
+        )
+        # the position itself is never logged
+        self.assertNotIn("47.5", "\n".join(logs.output))
+        self.assertNotIn("10.25", "\n".join(logs.output))
+
+    def test_stored_photo_has_no_location(self):
+        self.create()
+        photo = Photo.objects.get(crag__name="Photo crag")
+        with photo.image.open("rb") as stored:
+            result = Image.open(stored)
+            self.assertEqual(result.getexif().get_ifd(ExifTags.IFD.GPSInfo), {})
+
+    def test_create_keeps_entered_coordinates(self):
+        response = self.create(location="46.1, 11.2")
+        crag = Crag.objects.get(name="Photo crag")
+        self.assertEqual(
+            self.position(crag), (Decimal("46.100000"), Decimal("11.200000"))
+        )
+        self.assertNotContains(response, PHOTO_COORDINATES_MESSAGE)
+
+    def test_create_ignores_parking_photos(self):
+        response = self.create(category=Photo.Category.PARKING)
+        crag = Crag.objects.get(name="Photo crag")
+        self.assertEqual(self.position(crag), (None, None))
+        self.assertNotContains(response, PHOTO_COORDINATES_MESSAGE)
+
+    def test_create_with_photo_without_gps_changes_nothing(self):
+        response = self.create(images=[image_upload("plain.jpg")])
+        crag = Crag.objects.get(name="Photo crag")
+        self.assertEqual(self.position(crag), (None, None))
+        self.assertNotContains(response, PHOTO_COORDINATES_MESSAGE)
+
+    def test_create_with_zero_zero_changes_nothing(self):
+        self.create(images=[gps_upload(latitude=(0, 0, 0), longitude=(0, 0, 0))])
+        self.assertEqual(self.position(Crag.objects.get(name="Photo crag")), (None, None))
+
+    def test_create_with_invalid_gps_changes_nothing(self):
+        self.create(images=[gps_upload(latitude=(95, 0, 0))])
+        self.assertEqual(self.position(Crag.objects.get(name="Photo crag")), (None, None))
+
+    def test_add_photo_fills_missing_coordinates(self):
+        response = self.add_photos(self.draft)
+        self.assertEqual(self.position(self.draft), PHOTO_POSITION)
+        self.assertContains(response, PHOTO_COORDINATES_MESSAGE)
+
+    def test_add_photo_keeps_existing_coordinates(self):
+        Crag.objects.filter(pk=self.draft.pk).update(
+            latitude=Decimal("46.1"), longitude=Decimal("11.2")
+        )
+        response = self.add_photos(self.draft)
+        self.assertEqual(
+            self.position(self.draft), (Decimal("46.100000"), Decimal("11.200000"))
+        )
+        self.assertNotContains(response, PHOTO_COORDINATES_MESSAGE)
+
+    def test_add_photo_ignores_parking_photos(self):
+        self.add_photos(self.draft, category=Photo.Category.PARKING)
+        self.assertEqual(self.position(self.draft), (None, None))
+
+    def test_edit_fills_missing_coordinates(self):
+        response = self.edit(self.draft)
+        self.assertEqual(self.position(self.draft), PHOTO_POSITION)
+        self.assertContains(response, PHOTO_COORDINATES_MESSAGE)
+
+    def test_edit_keeps_existing_coordinates(self):
+        Crag.objects.filter(pk=self.draft.pk).update(
+            latitude=Decimal("46.1"), longitude=Decimal("11.2")
+        )
+        self.edit(self.draft, location="46.100000, 11.200000")
+        self.assertEqual(
+            self.position(self.draft), (Decimal("46.100000"), Decimal("11.200000"))
+        )
+
+    def test_edit_does_not_refill_cleared_coordinates(self):
+        Crag.objects.filter(pk=self.draft.pk).update(
+            latitude=Decimal("46.1"), longitude=Decimal("11.2")
+        )
+        response = self.edit(self.draft, location="")
+        self.assertEqual(self.position(self.draft), (None, None))
+        self.assertNotContains(response, PHOTO_COORDINATES_MESSAGE)
+
+
+class PrivacyPageGpsTests(TestCase):
+    def test_privacy_page_describes_photo_location_prefill(self):
+        response = self.client.get("/docs/privacy/")
+        self.assertContains(response, "used to fill in the crag coordinates")

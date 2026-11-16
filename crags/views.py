@@ -10,7 +10,7 @@ from django.views.decorators.http import require_POST
 
 from gr8base.offline import offline_cacheable
 
-from .forms import BulkPhotoForm, CragForm, process_image
+from .forms import BulkPhotoForm, CragForm, coordinates_from_photos, process_image
 from .models import Area, Crag, CragComment, CragRating, Feature, InvalidTransition, Photo
 
 logger = logging.getLogger(__name__)
@@ -19,6 +19,16 @@ MAX_PHOTOS_PER_CRAG = 8
 MAX_FILES_PER_UPLOAD = 8
 
 PUBLISH_PERM = "crags.can_publish_crag"
+
+
+def report_photo_coordinates(request, crag):
+    """Tell the user to check prefilled coordinates; log ids only, never the position."""
+    messages.warning(
+        request,
+        "The crag coordinates were taken from the location of a photo. "
+        "Please check them on the map and correct them if needed.",
+    )
+    logger.info("crag coordinates from photo crag=%s user=%s", crag.pk, request.user.pk)
 
 
 def can_publish_now(user, crag):
@@ -362,6 +372,7 @@ def crag_create(request):
 
         if form.is_valid():
             converted = []
+            photo_coordinates = None
             uploads_valid = True
             if len(uploads) > MAX_FILES_PER_UPLOAD:
                 uploads_valid = False
@@ -370,6 +381,11 @@ def crag_create(request):
                 )
             elif uploads:
                 if photo_form.is_valid():
+                    # read GPS from the originals, before process_image() drops it
+                    if not form.has_coordinates:
+                        photo_coordinates = coordinates_from_photos(
+                            uploads, photo_form.cleaned_data["category"]
+                        )
                     for upload in uploads:
                         try:
                             converted.append(process_image(upload))
@@ -381,6 +397,8 @@ def crag_create(request):
 
             if uploads_valid and not form.errors:
                 crag = form.save(commit=False)
+                if photo_coordinates:
+                    crag.latitude, crag.longitude = photo_coordinates
                 crag.created_by = request.user
                 crag.status = Crag.Status.DRAFT
                 crag.save()
@@ -410,6 +428,8 @@ def crag_create(request):
                         crag.pk, request.user.pk, len(converted),
                     )
                     messages.success(request, f"Uploaded {len(converted)} photo(s).")
+                if photo_coordinates:
+                    report_photo_coordinates(request, crag)
                 return redirect("crags:detail", pk=crag.pk)
     else:
         form = CragForm()
@@ -434,6 +454,7 @@ def crag_create(request):
 def crag_edit(request, pk):
     crag = get_object_or_404(editable_crags(request.user), pk=pk)
     existing = crag.photos.count()
+    had_coordinates = crag.latitude is not None or crag.longitude is not None
 
     if request.method == "POST":
         publish = request.POST.get("action") == "publish"
@@ -446,6 +467,7 @@ def crag_edit(request, pk):
 
         if form.is_valid():
             converted = []
+            photo_coordinates = None
             uploads_valid = True
             if returning and reason_error(request.POST.get("reason")):
                 uploads_valid = False
@@ -464,6 +486,11 @@ def crag_edit(request, pk):
                 )
             elif uploads:
                 if photo_form.is_valid():
+                    # read GPS from the originals, before process_image() drops it
+                    if not had_coordinates and not form.has_coordinates:
+                        photo_coordinates = coordinates_from_photos(
+                            uploads, photo_form.cleaned_data["category"]
+                        )
                     for upload in uploads:
                         try:
                             converted.append(process_image(upload))
@@ -475,6 +502,8 @@ def crag_edit(request, pk):
 
             if uploads_valid and not form.errors:
                 crag = form.save(commit=False)
+                if photo_coordinates:
+                    crag.latitude, crag.longitude = photo_coordinates
                 crag.save()
                 form.save_m2m()
                 resubmit = (
@@ -522,6 +551,8 @@ def crag_edit(request, pk):
                         crag.pk, request.user.pk, len(converted),
                     )
                     messages.success(request, f"Uploaded {len(converted)} photo(s).")
+                if photo_coordinates:
+                    report_photo_coordinates(request, crag)
                 return redirect("crags:detail", pk=crag.pk)
     else:
         form = CragForm(instance=crag)
@@ -589,6 +620,12 @@ def photo_add(request, pk):
             )
         elif form.is_valid():
             converted, errors = [], []
+            photo_coordinates = None
+            # read GPS from the originals, before process_image() drops it
+            if crag.latitude is None and crag.longitude is None:
+                photo_coordinates = coordinates_from_photos(
+                    uploads, form.cleaned_data["category"]
+                )
             for upload in uploads:
                 try:
                     converted.append((upload, process_image(upload)))
@@ -611,6 +648,10 @@ def photo_add(request, pk):
                     crag.pk, request.user.pk, len(converted),
                 )
                 messages.success(request, f"Uploaded {len(converted)} photo(s).")
+                if photo_coordinates:
+                    crag.latitude, crag.longitude = photo_coordinates
+                    crag.save(update_fields=["latitude", "longitude", "updated_at"])
+                    report_photo_coordinates(request, crag)
                 return redirect("crags:detail", pk=crag.pk)
     else:
         form = BulkPhotoForm()

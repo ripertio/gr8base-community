@@ -76,7 +76,8 @@
   .home-actions{grid-template-columns:repeat(2,1fr)}
   .footer-content{flex-direction:row;justify-content:space-between;align-items:end}
 }
-@media(max-width:991px){
+/* burger below 1024px: Pico's container is only 700px wide below that */
+@media(max-width:1023px){
   .site-nav{flex-wrap:wrap;align-items:center}
   .site-nav .nav-burger{display:block}
   .site-nav .nav-links{display:none;width:100%;flex-direction:column;align-items:stretch;margin:0;padding-bottom:.5rem}
@@ -91,10 +92,13 @@
   .photo-gallery-figure img{max-height:calc(100dvh - 7rem)}
   .photo-gallery-content button{width:2.5rem;height:2.5rem}
 }
-@media(min-width:992px){
+@media(min-width:1024px){
   .site-nav .nav-toggle,.site-nav .nav-burger{display:none}
   .site-nav .nav-links{display:flex;width:auto;flex-direction:row;align-items:center;margin-bottom:0}
 }
+/* "Add a crag": a plain link, the plus and weight make it the main action */
+.site-nav a.nav-add{font-weight:600}
+.site-nav .nav-links a,.site-nav .brand{white-space:nowrap}
 .inline-form{display:inline;margin:0}
 /* "button." beats Pico's button[type=submit]{width:100%} */
 button.link-button{display:inline;width:auto;margin:0;padding:0;border:0;background:none;color:var(--pico-primary);font-size:inherit;text-decoration:underline;cursor:pointer}
@@ -170,3 +174,5 @@ a.nav-count:hover,a.nav-count:focus-visible{background:var(--pico-primary-hover)
 .notification-list li{display:flex;flex-direction:column;gap:.15rem;margin:0;padding:.75rem 0;border-bottom:var(--pico-border-width) solid var(--pico-muted-border-color);list-style:none}
 .notification-list li.is-unread a{font-weight:600}
 .notification-list small{color:var(--pico-muted-color)}
+.profile-links{margin-bottom:var(--pico-typography-spacing-vertical)}
+.profile-links .nav-count{margin-inline-start:.3rem}

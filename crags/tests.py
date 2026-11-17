@@ -2792,11 +2792,33 @@ class InAppNotificationTests(CragTestBase):
         self.comment(self.bob)
         self.client.force_login(self.alice)
         response = self.client.get(reverse("crags:list"))
-        self.assertContains(
-            response,
-            f'href="{reverse("notifications")}" class="nav-count"',
-        )
+        self.assertContains(response, f'href="{reverse("notifications")}" class="nav-count"')
         self.assertContains(response, 'aria-label="2 unread notifications"')
+
+    def test_header_is_flat_and_profile_is_the_hub(self):
+        self.client.force_login(self.alice)
+        content = self.client.get(reverse("crags:list")).content.decode()
+        nav = content[content.index('<ul class="nav-links">'):content.index("</nav>")]
+        self.assertNotIn("<details", nav)  # no account dropdown
+        self.assertNotIn(reverse("crags:mine"), nav)
+        self.assertNotIn(reverse("account_logout"), nav)
+        self.assertIn(f'<a href="{reverse("crags:create")}" class="nav-add">＋ Add a crag</a>', nav)
+        self.assertIn(f'<a href="{reverse("profiles:detail", args=["alice"])}">alice</a>', nav)
+
+    def test_profile_has_my_crags_notifications_and_log_out(self):
+        self.comment(self.bob)
+        self.client.force_login(self.alice)
+        content = self.client.get(reverse("profiles:detail", args=["alice"])).content.decode()
+        hub = content[content.index('<div class="profile-links">'):]
+        hub = hub[:hub.index("</div>")]
+        self.assertIn(reverse("crags:mine"), hub)
+        self.assertIn(f'<a href="{reverse("notifications")}" aria-label="Notifications, 1 unread">', hub)
+        self.assertIn(f'action="{reverse("account_logout")}"', hub)
+
+    def test_anonymous_nav_is_unchanged(self):
+        content = self.client.get(reverse("crags:list")).content.decode()
+        self.assertIn(reverse("account_login"), content)
+        self.assertNotIn("Add a crag", content)
 
     def test_no_counter_without_unread(self):
         self.client.force_login(self.alice)
@@ -2827,10 +2849,6 @@ class InAppNotificationTests(CragTestBase):
         response = self.client.get(reverse("notifications"))
         self.assertEqual(response.status_code, 302)
 
-    def test_own_profile_links_to_notifications(self):
-        self.client.force_login(self.alice)
-        profile = reverse("profiles:detail", args=["alice"])
-        self.assertContains(self.client.get(profile), f'href="{reverse("notifications")}">Notifications</a>')
 
     def test_removed_crag_notifications_are_hidden(self):
         self.comment(self.bob)

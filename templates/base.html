@@ -59,25 +59,19 @@
                 <li><a href="{% url 'docs' %}">Help</a></li>
 
                 {% if user.is_authenticated %}
-                    <li><a href="{% url 'crags:mine' %}">My crags</a></li>
-                    <li><a href="{% url 'crags:create' %}">Add a crag</a></li>
                     {% if user.is_staff or perms.crags.can_publish_crag %}
                         <li>
                             <a href="{% url 'moderation:queue' %}"{% if open_moderation_count %} aria-label="Moderation, {{ open_moderation_count }} crag{{ open_moderation_count|pluralize }} waiting for review"{% endif %}>Moderation{% if open_moderation_count %} <span class="nav-count" aria-hidden="true">{{ open_moderation_count }}</span>{% endif %}</a>
                         </li>
                     {% endif %}
+                    <li><a href="{% url 'crags:create' %}" class="nav-add">＋ Add a crag</a></li>
+                    {# name: profile (the hub for My crags, Notifications, Log out); counter: notifications #}
                     <li>
                         <a href="{% url 'profiles:detail' user.username %}">{{ user.username }}</a>
                         {% if unread_notification_count %}
                             <a href="{% url 'notifications' %}" class="nav-count" title="Notifications"
                                aria-label="{{ unread_notification_count }} unread notification{{ unread_notification_count|pluralize }}">{{ unread_notification_count }}</a>
                         {% endif %}
-                    </li>
-                    <li>
-                        <form method="post" action="{% url 'account_logout' %}" class="nav-form">
-                            {% csrf_token %}
-                            <button type="submit" class="outline secondary">Log out</button>
-                        </form>
                     </li>
                 {% else %}
                     <li><a href="{% url 'account_login' %}">Log in</a></li>

@@ -2,6 +2,8 @@ from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.core.validators import MinValueValidator, MaxValueValidator
 from django.db import models
+from django.db.models.signals import post_delete
+from django.dispatch import receiver
 from django.urls import reverse
 from django.core.files.base import ContentFile
 from django.utils import timezone
@@ -477,6 +479,9 @@ class Notification(models.Model):
         PUBLISHED = "PUBLISHED", "Published"
         CHANGES_REQUESTED = "CHANGES_REQUESTED", "Changes requested"
         REVIEW_MESSAGE = "REVIEW_MESSAGE", "New message in a review"
+        CHANGE_REQUEST = "CHANGE_REQUEST", "Change suggested"
+        CHANGE_REQUEST_MESSAGE = "CHANGE_REQUEST_MESSAGE", "New message in a change request"
+        CHANGE_REQUEST_CLOSED = "CHANGE_REQUEST_CLOSED", "Change request handled"
 
     # read notifications older than this are deleted when the list is opened
     KEEP_READ_DAYS = 180
@@ -484,8 +489,12 @@ class Notification(models.Model):
     user = models.ForeignKey(
         settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="notifications"
     )
-    kind = models.CharField(max_length=20, choices=Kind.choices)
+    kind = models.CharField(max_length=30, choices=Kind.choices)
     crag = models.ForeignKey(Crag, on_delete=models.CASCADE, related_name="+")
+    # for the change request kinds: where the notification leads
+    change_request = models.ForeignKey(
+        "ChangeRequest", on_delete=models.CASCADE, null=True, blank=True, related_name="+"
+    )
     actor = models.ForeignKey(
         settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True,
         related_name="+",
@@ -523,10 +532,23 @@ class Notification(models.Model):
             return f"{name} was published. Thank you for contributing!"
         if self.kind == self.Kind.REVIEW_MESSAGE:
             return f"{who} wrote in the review of {name}."
+        if self.kind == self.Kind.CHANGE_REQUEST:
+            return f"{who} suggested a change to {name}."
+        if self.kind == self.Kind.CHANGE_REQUEST_MESSAGE:
+            return f"{who} wrote in a change request for {name}."
+        if self.kind == self.Kind.CHANGE_REQUEST_CLOSED:
+            request = self.change_request
+            if request is not None and request.status == ChangeRequest.Status.DONE:
+                return f"Your change request for {name} was done. Thank you!"
+            if request is not None and request.status == ChangeRequest.Status.DECLINED:
+                return f"Your change request for {name} was declined."
+            return f"Your change request for {name} was handled."
         return f"Changes were requested for {name}. Please edit it and submit it again."
 
     @property
     def url(self):
+        if self.change_request_id:
+            return reverse("crags:change_request", args=[self.change_request_id])
         url = reverse("crags:detail", args=[self.crag_id])
         if self.kind == self.Kind.COMMENT:
             return url + "#comments"
@@ -574,3 +596,120 @@ class ReviewMessage(models.Model):
     @property
     def author_name(self):
         return self.author.username if self.author else "Someone"
+
+
+def suggested_photo_upload_path(instance, filename):
+    # Random name; kept apart from the gallery until the photo is accepted
+    return f"crags/suggested/{uuid.uuid4().hex}.webp"
+
+
+class ChangeRequest(models.Model):
+    """Someone (not the creator) suggests a change to a published crag.
+
+    Private: the requester, the crag's creator and moderators see it. The
+    creator or a moderator edits the crag as usual and closes the request as
+    done or declined; suggested photos are accepted into the gallery or deleted.
+    """
+
+    class Topic(models.TextChoices):
+        LOCATION = "LOCATION", "Location"
+        APPROACH = "APPROACH", "Approach"
+        PARKING = "PARKING", "Parking"
+        BASE = "BASE", "Base"
+        RATING = "RATING", "Family rating"
+        PHOTOS = "PHOTOS", "Photos"
+        OTHER = "OTHER", "Other"
+
+    class Status(models.TextChoices):
+        OPEN = "OPEN", "Open"
+        DONE = "DONE", "Done"
+        DECLINED = "DECLINED", "Declined"
+
+    MAX_LENGTH = 2000
+
+    crag = models.ForeignKey(Crag, on_delete=models.CASCADE, related_name="change_requests")
+    requester = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name="+",
+    )
+    topic = models.CharField(max_length=10, choices=Topic.choices, default=Topic.OTHER)
+    text = models.TextField(max_length=MAX_LENGTH, blank=True)
+    status = models.CharField(max_length=10, choices=Status.choices, default=Status.OPEN)
+    created_at = models.DateTimeField(default=timezone.now)
+    closed_at = models.DateTimeField(null=True, blank=True)
+    closed_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name="+",
+    )
+
+    class Meta:
+        ordering = ["-created_at", "-pk"]
+
+    def __str__(self):
+        return f"Change request for {self.crag}"
+
+    @property
+    def is_open(self):
+        return self.status == self.Status.OPEN
+
+    @property
+    def requester_name(self):
+        return self.requester.username if self.requester else "Someone"
+
+
+class ChangeRequestMessage(models.Model):
+    """A reply in a change request, or its closing step (DONE/DECLINED, with a note)."""
+
+    class Kind(models.TextChoices):
+        MESSAGE = "MESSAGE", "Message"
+        DONE = "DONE", "Done"
+        DECLINED = "DECLINED", "Declined"
+
+    change_request = models.ForeignKey(
+        ChangeRequest, on_delete=models.CASCADE, related_name="messages"
+    )
+    author = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name="+",
+    )
+    kind = models.CharField(max_length=10, choices=Kind.choices, default=Kind.MESSAGE)
+    text = models.TextField(max_length=ChangeRequest.MAX_LENGTH, blank=True)
+    created_at = models.DateTimeField(default=timezone.now)
+
+    class Meta:
+        ordering = ["created_at", "pk"]
+
+    @property
+    def author_name(self):
+        return self.author.username if self.author else "Someone"
+
+
+class ChangeRequestPhoto(models.Model):
+    """A photo suggested with a change request; private until accepted.
+
+    Accepting copies it into the crag's gallery (crags.views); the suggestion
+    and its file are deleted when the request is closed either way.
+    """
+
+    change_request = models.ForeignKey(
+        ChangeRequest, on_delete=models.CASCADE, related_name="photos"
+    )
+    image = models.ImageField(upload_to=suggested_photo_upload_path)
+    category = models.CharField(
+        max_length=10, choices=Photo.Category.choices, default=Photo.Category.CRAG
+    )
+    uploaded_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name="+",
+    )
+    created_at = models.DateTimeField(default=timezone.now)
+
+    class Meta:
+        ordering = ["created_at", "pk"]
+
+
+@receiver(post_delete, sender=ChangeRequestPhoto)
+def delete_suggested_photo_file(sender, instance, **kwargs):
+    """Also on cascades (a deleted crag or request): no orphaned files."""
+    if instance.image:
+        instance.image.delete(save=False)

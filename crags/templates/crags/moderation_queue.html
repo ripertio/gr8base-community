@@ -16,6 +16,18 @@
 </ul>
 {% if filtered %}<p><small><a href="?{{ show_all_query }}">Show all</a></small></p>{% endif %}
 
+{% if open_change_requests %}
+    <article class="awaiting-answer">
+        <header><strong>Open change requests</strong></header>
+        <p><small>Suggestions from other users. The crag's creator usually handles them; you can step in.</small></p>
+        <ul>
+            {% for change in open_change_requests %}
+                <li><a href="{% url 'crags:change_request' change.pk %}">{{ change.crag.name }}: {{ change.get_topic_display }}</a> <small>by {{ change.requester_name }} · {{ change.created_at|date:"j M Y" }}</small></li>
+            {% endfor %}
+        </ul>
+    </article>
+{% endif %}
+
 {% if awaiting_answer %}
     <article class="awaiting-answer">
         <header><strong>Waiting for your answer</strong></header>

@@ -26,7 +26,7 @@ from .forms import (
 )
 from .models import (
     THUMBNAIL_EDGE, Area, Crag, InvalidTransition, CragComment, CragRating, Feature,
-    Guidebook, Notification, Photo, ReviewMessage,
+    ChangeRequest, ChangeRequestPhoto, Guidebook, Notification, Photo, ReviewMessage,
 )
 
 
@@ -2983,6 +2983,8 @@ class NotificationSettingsTests(CragTestBase):
             "COMMENT": (True, False), "RATING": (True, False), "PHOTO": (True, False),
             "PUBLISHED": (True, True), "CHANGES_REQUESTED": (True, True),
             "REVIEW_MESSAGE": (True, True), "REVIEW_WAITING": (True, True),
+            "CHANGE_REQUEST": (True, True), "CHANGE_REQUEST_MESSAGE": (True, True),
+            "CHANGE_REQUEST_CLOSED": (True, True),
         }
         for key, (in_app, email) in expected.items():
             self.assertEqual(wants(self.alice, key, "in_app"), in_app, key)
@@ -2999,9 +3001,10 @@ class NotificationSettingsTests(CragTestBase):
         self.client.force_login(self.alice)
         response = self.client.get(reverse("notification_settings"))
         keys = [row["key"] for row in response.context["rows"]]
-        self.assertEqual(
-            keys, ["COMMENT", "RATING", "PHOTO", "PUBLISHED", "CHANGES_REQUESTED", "REVIEW_MESSAGE"]
-        )
+        self.assertEqual(keys, [
+            "COMMENT", "RATING", "PHOTO", "PUBLISHED", "CHANGES_REQUESTED", "REVIEW_MESSAGE",
+            "CHANGE_REQUEST", "CHANGE_REQUEST_MESSAGE", "CHANGE_REQUEST_CLOSED",
+        ])
         self.assertContains(response, 'name="COMMENT-in_app" aria-label="Someone comments on one of my crags: in the app" checked')
         self.assertContains(response, 'name="COMMENT-email" aria-label="Someone comments on one of my crags: by email">')
         self.assertContains(response, "<th scope=\"col\">By email</th>", html=False)
@@ -3362,3 +3365,238 @@ class ReviewThreadTests(CragTestBase):
 
     def test_privacy_page_describes_review_conversations(self):
         self.assertContains(self.client.get("/docs/privacy/"), "Review conversations")
+
+
+
+class ChangeRequestTests(CragTestBase):
+    """"Suggest a change": private requests with optional photos (crags/change_requests.py)."""
+
+    def setUp(self):
+        media_root = tempfile.TemporaryDirectory()
+        self.addCleanup(media_root.cleanup)
+        self.media_root = media_root.name
+        settings = override_settings(MEDIA_ROOT=media_root.name)
+        settings.enable()
+        self.addCleanup(settings.disable)
+        self.manager = User.objects.create_user("mgr", "mgr@example.com", "pw", is_staff=True)
+        self.manager.groups.add(Group.objects.get(name="Crag Managers"))
+        self.carol = User.objects.create_user("carol", "carol@example.com", "pw-carol-123")
+
+    def suggest(self, user=None, crag=None, **data):
+        self.client.force_login(user or self.bob)
+        payload = {"topic": "PARKING", "text": "The parking moved to the church.", "category": "PARKING"}
+        payload.update(data)
+        return self.client.post(reverse("crags:suggest", args=[(crag or self.published).pk]), payload)
+
+    def latest(self):
+        return ChangeRequest.objects.latest("pk")
+
+    def close(self, user, change_request, action="done", **data):
+        self.client.force_login(user)
+        return self.client.post(
+            reverse("crags:change_request_close", args=[change_request.pk]),
+            {"action": action, **data},
+        )
+
+    def files(self, folder):
+        path = os.path.join(self.media_root, folder)
+        return sorted(os.listdir(path)) if os.path.isdir(path) else []
+
+    # --- suggesting -----------------------------------------------------------------
+
+    def test_crag_page_offers_suggest_a_change_to_others_only(self):
+        url = reverse("crags:detail", args=[self.published.pk])
+        suggest = reverse("crags:suggest", args=[self.published.pk])
+        self.client.force_login(self.bob)
+        self.assertContains(self.client.get(url), f'href="{suggest}"')
+        self.client.force_login(self.alice)  # the creator edits directly
+        self.assertNotContains(self.client.get(url), f'href="{suggest}"')
+        self.client.logout()
+        self.assertNotContains(self.client.get(url), f'href="{suggest}"')
+
+    def test_creator_is_sent_to_edit_instead(self):
+        response = self.suggest(self.alice)
+        self.assertRedirects(response, reverse("crags:edit", args=[self.published.pk]))
+        self.assertFalse(ChangeRequest.objects.exists())
+
+    def test_only_published_crags_and_logged_in_users(self):
+        self.assertEqual(self.suggest(crag=self.pending).status_code, 404)
+        self.client.logout()
+        response = self.client.get(reverse("crags:suggest", args=[self.published.pk]))
+        self.assertEqual(response.status_code, 302)
+
+    def test_suggestion_with_text_notifies_the_creator(self):
+        response = self.suggest()
+        change = self.latest()
+        self.assertRedirects(response, reverse("crags:change_request", args=[change.pk]))
+        self.assertEqual((change.requester, change.topic, change.status), (self.bob, "PARKING", "OPEN"))
+        note = Notification.objects.get(user=self.alice, kind="CHANGE_REQUEST")
+        self.assertEqual(note.text, "bob suggested a change to \u201cPublic\u201d.")
+        self.assertEqual(note.url, reverse("crags:change_request", args=[change.pk]))
+        [message] = mail.outbox
+        self.assertEqual(message.to, ["alice@example.com"])
+        self.assertIn("> The parking moved to the church.", message.body)
+        self.assertIn(reverse("crags:change_request", args=[change.pk]), message.body)
+
+    def test_photos_only_suggestion_is_stored_privately(self):
+        self.suggest(topic="PHOTOS", text="", images=[image_upload("a.jpg"), image_upload("b.jpg")])
+        change = self.latest()
+        self.assertEqual(change.photos.count(), 2)
+        self.assertTrue(all(p.image.name.startswith("crags/suggested/") for p in change.photos.all()))
+        self.assertTrue(all(p.category == "PARKING" and p.uploaded_by == self.bob for p in change.photos.all()))
+        self.assertEqual(self.published.photos.count(), 0)  # not in the gallery yet
+        self.assertEqual(len(self.files("crags/suggested")), 2)
+
+    def test_empty_or_broken_suggestions_are_refused(self):
+        response = self.suggest(text="")
+        self.assertContains(response, "Describe the change or add photos.")
+        response = self.suggest(images=[SimpleUploadedFile("x.jpg", b"not an image", "image/jpeg")])
+        self.assertContains(response, "could not be read")
+        self.assertFalse(ChangeRequest.objects.exists())
+        self.assertEqual(self.files("crags/suggested"), [])
+
+    # --- who sees what --------------------------------------------------------------
+
+    def test_visible_to_requester_creator_and_moderators_only(self):
+        self.suggest()
+        url = reverse("crags:change_request", args=[self.latest().pk])
+        for user in (self.bob, self.alice, self.manager):
+            self.client.force_login(user)
+            self.assertEqual(self.client.get(url).status_code, 200, user.username)
+        self.client.force_login(self.carol)
+        self.assertEqual(self.client.get(url).status_code, 404)
+        self.client.logout()
+        self.assertEqual(self.client.get(url).status_code, 302)
+
+    def test_crag_page_lists_requests_for_handlers_and_own_for_requester(self):
+        self.suggest()
+        crag_url = reverse("crags:detail", args=[self.published.pk])
+        self.client.force_login(self.alice)
+        self.assertContains(self.client.get(crag_url), "Open change requests")
+        self.client.force_login(self.bob)
+        self.assertContains(self.client.get(crag_url), "Your change requests")
+        self.client.force_login(self.carol)
+        self.assertNotContains(self.client.get(crag_url), "change requests")
+
+    def test_moderation_queue_lists_open_requests(self):
+        self.suggest()
+        self.client.force_login(self.manager)
+        response = self.client.get(reverse("moderation:queue"))
+        self.assertContains(response, "Open change requests")
+        self.assertContains(response, "Public: Parking")
+
+    # --- messages ---------------------------------------------------------------------
+
+    def test_reply_notifies_the_others(self):
+        self.suggest()
+        change = self.latest()
+        mail.outbox.clear()
+        self.client.force_login(self.alice)
+        self.client.post(reverse("crags:change_request_reply", args=[change.pk]), {"text": "Which church?"})
+        self.assertEqual(change.messages.get().text, "Which church?")
+        note = Notification.objects.get(user=self.bob, kind="CHANGE_REQUEST_MESSAGE")
+        self.assertEqual(note.text, "alice wrote in a change request for \u201cPublic\u201d.")
+        self.assertEqual([m.to for m in mail.outbox], [["bob@example.com"]])
+
+    def test_others_cannot_reply(self):
+        self.suggest()
+        self.client.force_login(self.carol)
+        response = self.client.post(
+            reverse("crags:change_request_reply", args=[self.latest().pk]), {"text": "Hi"}
+        )
+        self.assertEqual(response.status_code, 404)
+
+    # --- closing ----------------------------------------------------------------------
+
+    def test_done_accepts_ticked_photos_and_deletes_the_rest(self):
+        self.suggest(topic="PHOTOS", images=[image_upload("a.jpg"), image_upload("b.jpg")])
+        change = self.latest()
+        keep, drop = change.photos.all()
+        mail.outbox.clear()
+        response = self.close(
+            self.alice, change, accept=[keep.pk], **{f"category-{keep.pk}": "BASE_AREA"},
+            text="Thanks, updated!",
+        )
+        self.assertRedirects(response, reverse("crags:change_request", args=[change.pk]))
+        change.refresh_from_db()
+        self.assertEqual((change.status, change.closed_by), ("DONE", self.alice))
+        [photo] = self.published.photos.all()
+        self.assertEqual((photo.category, photo.uploaded_by), ("BASE_AREA", self.bob))
+        self.assertTrue(photo.thumbnail.name.startswith("crags/thumbs/"))
+        self.assertFalse(ChangeRequestPhoto.objects.exists())
+        self.assertEqual(self.files("crags/suggested"), [])  # both suggestion files gone
+        note = Notification.objects.get(user=self.bob, kind="CHANGE_REQUEST_CLOSED")
+        self.assertEqual(note.text, "Your change request for \u201cPublic\u201d was done. Thank you!")
+        self.assertIn("> Thanks, updated!", mail.outbox[0].body)
+        # the creator handled it: no photo notification to themselves
+        self.assertFalse(Notification.objects.filter(user=self.alice, kind="PHOTO").exists())
+
+    def test_moderator_accepting_photos_tells_the_creator(self):
+        self.suggest(topic="PHOTOS", images=[image_upload("a.jpg")])
+        change = self.latest()
+        self.close(self.manager, change, accept=[change.photos.get().pk])
+        self.assertTrue(Notification.objects.filter(user=self.alice, kind="PHOTO", actor=self.manager).exists())
+
+    def test_decline_deletes_photos_and_tells_the_requester(self):
+        self.suggest(images=[image_upload("a.jpg")])
+        change = self.latest()
+        self.close(self.alice, change, action="declined", accept=[change.photos.get().pk])
+        change.refresh_from_db()
+        self.assertEqual(change.status, "DECLINED")
+        self.assertEqual(self.published.photos.count(), 0)
+        self.assertEqual(self.files("crags/suggested"), [])
+        self.assertEqual(
+            Notification.objects.get(user=self.bob, kind="CHANGE_REQUEST_CLOSED").text,
+            "Your change request for \u201cPublic\u201d was declined.",
+        )
+        self.assertEqual(change.messages.get().kind, "DECLINED")
+
+    def test_photo_limit_applies_when_accepting(self):
+        for i in range(7):
+            Photo.objects.create(crag=self.published, image=image_upload(f"{i}.jpg"), uploaded_by=self.alice)
+        self.suggest(topic="PHOTOS", images=[image_upload("a.jpg"), image_upload("b.jpg")])
+        change = self.latest()
+        ids = [p.pk for p in change.photos.all()]
+        self.client.force_login(self.alice)
+        response = self.client.post(
+            reverse("crags:change_request_close", args=[change.pk]),
+            {"action": "done", "accept": ids}, follow=True,
+        )
+        self.assertContains(response, "You can accept 1 more")
+        change.refresh_from_db()
+        self.assertEqual(change.status, "OPEN")  # nothing happened
+        self.assertEqual(self.published.photos.count(), 7)
+        self.assertEqual(change.photos.count(), 2)
+        # staff have no limit
+        self.close(self.staff, change, accept=ids)
+        self.assertEqual(self.published.photos.count(), 9)
+
+    def test_only_creator_and_moderators_can_close(self):
+        self.suggest()
+        change = self.latest()
+        self.assertEqual(self.close(self.bob, change).status_code, 403)  # the requester
+        self.assertEqual(self.close(self.carol, change).status_code, 404)
+        change.refresh_from_db()
+        self.assertEqual(change.status, "OPEN")
+
+    def test_closed_request_takes_no_more_replies_or_closing(self):
+        self.suggest()
+        change = self.latest()
+        self.close(self.alice, change, action="declined")
+        self.client.force_login(self.bob)
+        self.client.post(reverse("crags:change_request_reply", args=[change.pk]), {"text": "But why?"})
+        self.assertFalse(change.messages.filter(kind="MESSAGE").exists())
+        response = self.client.get(reverse("crags:change_request", args=[change.pk]))
+        self.assertContains(response, "This change request is closed.")
+        self.close(self.alice, change, action="done")
+        change.refresh_from_db()
+        self.assertEqual(change.status, "DECLINED")
+
+    def test_deleting_the_crag_deletes_suggested_photo_files(self):
+        self.suggest(images=[image_upload("a.jpg")])
+        self.assertEqual(len(self.files("crags/suggested")), 1)
+        self.published.delete()
+        self.assertEqual(self.files("crags/suggested"), [])
+
+    def test_privacy_page_describes_change_suggestions(self):
+        self.assertContains(self.client.get("/docs/privacy/"), "Change suggestions")

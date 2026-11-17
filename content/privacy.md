@@ -20,6 +20,8 @@ We collect as little data as possible. There is no third-party tracking. Data is
 
 **Review conversations.** When you submit a crag for review, you and the moderators can write messages to each other on the crag's page, for example about requested changes. Only you and the moderators see this conversation, together with the review steps (submitted, changes requested, published). It is kept with the crag as its review history. If you delete your account, your name is removed from it.
 
+**Change suggestions.** You can suggest a change to a crag someone else created, with text and optionally photos. Your suggestion, the messages about it and the photos are only visible to you, the crag's creator and the moderators. Photos are re-encoded like all uploads (location data is removed). Photos that are accepted become part of the crag's gallery and are shown with the crag like any other photo; all other suggested photos are deleted when the suggestion is closed. The suggestion and its messages are kept with the crag; if you delete your account, your name is removed from them.
+
 **Notifications.** When someone comments on, rates or adds photos to a crag you created, or when your crag is reviewed, we store a notification for you: what happened, which crag, who did it and when. Only you see your notifications, on the "Notifications" page and as a counter next to your username. In your notification settings you choose for each kind of notification whether you see it in the app and whether you also get it by email; emails about comments, ratings and photos are off unless you switch them on. Opening that page marks them as read. Notifications that are read are deleted after 180 days. All your notifications are deleted with your account, and if the other person deletes their account, their name is removed from your notifications.
 
 **Session data.** After you log in, a session cookie keeps you signed in. It is strictly necessary for the login function. We do not use marketing or tracking cookies.
@@ -62,6 +64,7 @@ We do not sell personal data.
 - Crag entries and photos: as long as they remain published. When you delete your account, your username is removed from the entries and photos you created. Crag information that others rely on (such as location and approach details) stays published without any link to you. Personal data in them, such as photos showing people or captions naming people, is removed on request. See section 5 of our [Terms of Use](/docs/terms/).
 - Notifications: 180 days after you have read them, or until you delete your account.
 - Review conversations: as long as the crag exists; your name is removed when you delete your account.
+- Change suggestions: the text and messages as long as the crag exists (your name is removed when you delete your account); suggested photos until the suggestion is closed, unless they are accepted into the gallery.
 - Server logs: only for as long as needed for operation and security, then deleted.
 
 ## 6. Your rights

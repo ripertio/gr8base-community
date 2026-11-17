@@ -190,3 +190,9 @@ a.nav-count:hover,a.nav-count:focus-visible{background:var(--pico-primary-hover)
 details.review-closed{margin:2rem 0}
 details.review-closed>summary{font-weight:600}
 details.review-closed>summary small{color:var(--pico-muted-color);font-weight:normal}
+/* change requests: suggested photos */
+.suggested-photos{display:grid;grid-template-columns:repeat(auto-fill,minmax(12rem,1fr));gap:1rem;margin-bottom:1rem}
+.suggested-photos figure{margin:0}
+.suggested-photos img{width:100%;aspect-ratio:4/3;object-fit:cover;border-radius:var(--pico-border-radius)}
+.suggested-photos figcaption label{margin:.4rem 0 .25rem}
+.suggested-photos select{margin-bottom:0}

@@ -24,8 +24,11 @@
     <p><mark>Status: {{ crag.get_status_display }}</mark></p>
 {% endif %}
 
-{% if can_edit or can_publish or can_return or can_reject %}
+{% if can_edit or can_publish or can_return or can_reject or can_suggest %}
     <div class="actions">
+        {% if can_suggest %}
+            <a href="{% url 'crags:suggest' crag.pk %}" role="button" class="outline secondary">Suggest a change</a>
+        {% endif %}
         {% if can_edit %}
             <a href="{% url 'crags:edit' crag.pk %}{% if next %}?next={{ next|urlencode:'' }}{% endif %}" role="button" class="outline">Edit</a>
         {% endif %}
@@ -59,6 +62,21 @@
 {% endif %}
 
 {% if review %}{% include "crags/_review_thread.html" %}{% endif %}
+
+{% if change_requests %}
+    {# private: open requests for the creator and moderators, or the viewer's own #}
+    <article class="change-requests">
+        <header><strong>{% if handles_changes %}Open change requests{% else %}Your change requests{% endif %}</strong></header>
+        <ul>
+            {% for change in change_requests %}
+                <li>
+                    <a href="{% url 'crags:change_request' change.pk %}">{{ change.get_topic_display }}: {% if change.text %}{{ change.text|truncatechars:80 }}{% else %}photos{% endif %}</a>
+                    <small>{% if handles_changes %}by {{ change.requester_name }} · {% else %}{{ change.get_status_display }} · {% endif %}{{ change.created_at|date:"j M Y" }}</small>
+                </li>
+            {% endfor %}
+        </ul>
+    </article>
+{% endif %}
 
 <a href="{% url 'crags:list' %}">
     ← All crags

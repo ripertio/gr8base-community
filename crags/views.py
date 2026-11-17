@@ -20,6 +20,7 @@ from .models import (
     Area, Crag, CragComment, CragRating, Feature, InvalidTransition, Notification, Photo,
     ReviewMessage,
 )
+from .change_requests import can_handle, can_suggest, requests_for_crag_page
 from .notifications import (
     CHANNELS, can_moderate, notify_owner, notify_review_message, types_for, wants,
 )
@@ -390,6 +391,9 @@ def crag_detail(request, pk):
             "my_rating": my_rating,
             "comments": crag.comments.select_related("user"),
             "review": review_context(request.user, crag),
+            "can_suggest": can_suggest(request.user, crag),
+            "change_requests": requests_for_crag_page(request.user, crag),
+            "handles_changes": can_handle(request.user, crag),
             "can_comment": request.user.is_authenticated
             and crag.status == Crag.Status.PUBLISHED,
             "comment_max_length": CragComment.MAX_LENGTH,

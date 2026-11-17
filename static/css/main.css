@@ -96,8 +96,6 @@
   .site-nav .nav-toggle,.site-nav .nav-burger{display:none}
   .site-nav .nav-links{display:flex;width:auto;flex-direction:row;align-items:center;margin-bottom:0}
 }
-/* "Add a crag": a plain link, the plus and weight make it the main action */
-.site-nav a.nav-add{font-weight:600}
 .site-nav .nav-links a,.site-nav .brand{white-space:nowrap}
 .inline-form{display:inline;margin:0}
 /* "button." beats Pico's button[type=submit]{width:100%} */

@@ -2802,7 +2802,7 @@ class InAppNotificationTests(CragTestBase):
         self.assertNotIn("<details", nav)  # no account dropdown
         self.assertNotIn(reverse("crags:mine"), nav)
         self.assertNotIn(reverse("account_logout"), nav)
-        self.assertIn(f'<a href="{reverse("crags:create")}" class="nav-add">＋ Add a crag</a>', nav)
+        self.assertIn(f'<a href="{reverse("crags:create")}">Add a crag</a>', nav)
         self.assertIn(f'<a href="{reverse("profiles:detail", args=["alice"])}">alice</a>', nav)
 
     def test_profile_has_my_crags_notifications_and_log_out(self):
@@ -2818,7 +2818,7 @@ class InAppNotificationTests(CragTestBase):
     def test_anonymous_nav_is_unchanged(self):
         content = self.client.get(reverse("crags:list")).content.decode()
         self.assertIn(reverse("account_login"), content)
-        self.assertNotIn("Add a crag", content)
+        self.assertNotIn(reverse("crags:create"), content)
 
     def test_no_counter_without_unread(self):
         self.client.force_login(self.alice)

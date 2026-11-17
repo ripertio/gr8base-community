@@ -172,3 +172,26 @@ class OfflineSupportTests(TestCase):
         self.get("/sw.js")
         self.get(reverse("offline"))
         self.assertFalse(DailyHits.objects.exists())
+
+
+class FaqNavigationTests(TestCase):
+    """"FAQ" (the /docs/ page) replaces "Help"; Stats moved from the header into it."""
+
+    def test_header_has_faq_and_no_stats(self):
+        content = self.client.get(reverse("crags:list")).content.decode()
+        nav = content[content.index('<ul class="nav-links">'):content.index("</nav>")]
+        self.assertIn(f'<a href="{reverse("docs")}">FAQ</a>', nav)
+        self.assertNotIn(reverse("stats:index"), nav)
+        self.assertNotIn(">Help<", nav)
+
+    def test_faq_page_links_to_statistics(self):
+        response = self.client.get(reverse("docs"))
+        self.assertContains(response, f'<a href="{reverse("stats:index")}">Site statistics</a>', html=True)
+        self.assertContains(response, "FAQ – gr8base community")
+        self.assertContains(response, ">Frequently asked questions</h1>")
+        self.assertContains(response, "Useful information")
+
+    def test_footer_links_to_faq(self):
+        content = self.client.get(reverse("crags:list")).content.decode()
+        footer = content[content.index('<footer class="container site-footer">'):]
+        self.assertIn(f'<a href="{reverse("docs")}">FAQ</a>', footer)

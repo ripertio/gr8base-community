@@ -2,7 +2,7 @@
 
 
 {% block title %}
-Documentation – gr8base community
+FAQ – gr8base community
 {% endblock %}
 
 
@@ -18,21 +18,20 @@ Documentation – gr8base community
 {% endif %}
 
 
-{% if pages %}
 <section>
 
     <h2>
-        Usefule Information
+        Useful information
     </h2>
 
     <ul>
         {% for page in pages %}
         <li><a href="{% url 'doc_page' page.slug %}">{{ page.title }}</a></li>
         {% endfor %}
+        <li><a href="{% url 'stats:index' %}">Site statistics</a></li>
     </ul>
 
 </section>
-{% endif %}
 
 
 

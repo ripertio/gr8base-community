@@ -31,6 +31,7 @@
         <div class="profile-links">
             <a href="{% url 'crags:mine' %}">My crags</a> ·
             <a href="{% url 'notifications' %}"{% if unread_notification_count %} aria-label="Notifications, {{ unread_notification_count }} unread"{% endif %}>Notifications{% if unread_notification_count %}<span class="nav-count" aria-hidden="true">{{ unread_notification_count }}</span>{% endif %}</a> ·
+            <a href="{% url 'notification_settings' %}">Notification settings</a> ·
             <a href="{% url 'account_email' %}">Email</a> ·
             <a href="{% url 'account_change_password' %}">Password</a> ·
             <form method="post" action="{% url 'account_logout' %}" class="inline-form">

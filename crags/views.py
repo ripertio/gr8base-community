@@ -19,7 +19,7 @@ from .forms import BulkPhotoForm, CragForm, coordinates_from_photos, process_ima
 from .models import (
     Area, Crag, CragComment, CragRating, Feature, InvalidTransition, Notification, Photo,
 )
-from .notifications import notify_in_app
+from .notifications import CHANNELS, notify_owner, types_for, wants
 
 logger = logging.getLogger(__name__)
 
@@ -406,10 +406,13 @@ def crag_rate(request, pk):
         CragRating.objects.filter(crag=crag, user=request.user).delete()
         messages.success(request, "Your rating was removed.")
     else:
-        CragRating.objects.update_or_create(
+        _, created = CragRating.objects.update_or_create(
             crag=crag, user=request.user, defaults=values
         )
-        notify_in_app(crag.created_by, Notification.Kind.RATING, crag, request.user)
+        # email only for a new rating, not every change of it
+        notify_owner(
+            crag.created_by, Notification.Kind.RATING, crag, request.user, email=created
+        )
         messages.success(request, "Thanks for rating!")
     return redirect("crags:detail", pk=pk)
 
@@ -427,7 +430,7 @@ def comment_add(request, pk):
         )
     else:
         CragComment.objects.create(crag=crag, user=request.user, text=text)
-        notify_in_app(crag.created_by, Notification.Kind.COMMENT, crag, request.user)
+        notify_owner(crag.created_by, Notification.Kind.COMMENT, crag, request.user)
         messages.success(request, "Comment added.")
     return redirect(reverse("crags:detail", args=[crag.pk]) + "#comments")
 
@@ -456,6 +459,34 @@ def notification_list(request):
     # after fetching, so this page can still highlight what was new
     Notification.unread_for(request.user).update(read_at=timezone.now())
     return render(request, "crags/notifications.html", {"notifications": notifications})
+
+
+@login_required
+def notification_settings(request):
+    """Per notification type: in the app and/or by email (crags/notifications.py)."""
+    user = request.user
+    types = types_for(user)
+    if request.method == "POST":
+        saved = dict(user.notification_settings or {})
+        for kind in types:
+            saved[kind.key] = {
+                channel: f"{kind.key}-{channel}" in request.POST for channel in CHANNELS
+            }
+        user.notification_settings = saved
+        user.save(update_fields=["notification_settings"])
+        logger.info("notification settings saved user=%s", user.pk)
+        messages.success(request, "Notification settings saved.")
+        return redirect("notification_settings")
+    rows = [
+        {
+            "key": kind.key,
+            "label": kind.label,
+            "in_app": wants(user, kind.key, "in_app"),
+            "email": wants(user, kind.key, "email"),
+        }
+        for kind in types
+    ]
+    return render(request, "crags/notification_settings.html", {"rows": rows})
 
 
 @login_required
@@ -655,7 +686,7 @@ def crag_edit(request, pk):
                     crag.pk, request.user.pk, crag.status,
                 )
                 if converted:
-                    notify_in_app(
+                    notify_owner(
                         crag.created_by, Notification.Kind.PHOTO, crag, request.user,
                         len(converted),
                     )
@@ -761,7 +792,7 @@ def photo_add(request, pk):
                     "photos uploaded crag=%s user=%s count=%s",
                     crag.pk, request.user.pk, len(converted),
                 )
-                notify_in_app(
+                notify_owner(
                     crag.created_by, Notification.Kind.PHOTO, crag, request.user, len(converted)
                 )
                 messages.success(request, f"Uploaded {len(converted)} photo(s).")

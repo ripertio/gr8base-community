@@ -174,3 +174,6 @@ a.nav-count:hover,a.nav-count:focus-visible{background:var(--pico-primary-hover)
 .notification-list small{color:var(--pico-muted-color)}
 .profile-links{margin-bottom:var(--pico-typography-spacing-vertical)}
 .profile-links .nav-count{margin-inline-start:.3rem}
+/* notification settings: checkboxes centred under their column */
+.notification-settings td{text-align:center}
+.notification-settings td input{margin:0}

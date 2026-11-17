@@ -2940,3 +2940,183 @@ class InAppNotificationTests(CragTestBase):
     def test_privacy_page_describes_notifications(self):
         response = self.client.get("/docs/privacy/")
         self.assertContains(response, "Notifications that are read are deleted after 180 days")
+
+
+class NotificationSettingsTests(CragTestBase):
+    """Per type: in the app and/or by email (crags/notifications.py NOTIFICATION_TYPES)."""
+
+    def setUp(self):
+        media_root = tempfile.TemporaryDirectory()
+        self.addCleanup(media_root.cleanup)
+        settings = override_settings(MEDIA_ROOT=media_root.name)
+        settings.enable()
+        self.addCleanup(settings.disable)
+
+    def manager(self, username="mgr"):
+        user = User.objects.create_user(username, f"{username}@example.com", "pw", is_staff=True)
+        user.groups.add(Group.objects.get(name="Crag Managers"))
+        return user
+
+    def set(self, user, **channels):
+        """set(alice, COMMENT={"email": True})"""
+        user.notification_settings = {**user.notification_settings, **channels}
+        user.save()
+        user.refresh_from_db()
+
+    def comment(self, user=None):
+        self.client.force_login(user or self.bob)
+        self.client.post(reverse("crags:comment_add", args=[self.published.pk]), {"text": "Nice!"})
+
+    def rate(self, stars):
+        self.client.force_login(self.bob)
+        self.client.post(
+            reverse("crags:rate", args=[self.published.pk]),
+            {"rating_babies": stars, "rating_ages_2_4": "", "rating_ages_5_plus": ""},
+        )
+
+    # --- defaults ---------------------------------------------------------------
+
+    def test_defaults_keep_the_old_behaviour(self):
+        from .notifications import wants
+        expected = {
+            "COMMENT": (True, False), "RATING": (True, False), "PHOTO": (True, False),
+            "PUBLISHED": (True, True), "CHANGES_REQUESTED": (True, True),
+            "REVIEW_WAITING": (True, True),
+        }
+        for key, (in_app, email) in expected.items():
+            self.assertEqual(wants(self.alice, key, "in_app"), in_app, key)
+            self.assertEqual(wants(self.alice, key, "email"), email, key)
+
+    def test_comment_by_default_in_app_but_no_email(self):
+        self.comment()
+        self.assertEqual(Notification.objects.filter(user=self.alice).count(), 1)
+        self.assertEqual(mail.outbox, [])
+
+    # --- page ---------------------------------------------------------------------
+
+    def test_page_shows_a_row_per_type_with_two_channels(self):
+        self.client.force_login(self.alice)
+        response = self.client.get(reverse("notification_settings"))
+        keys = [row["key"] for row in response.context["rows"]]
+        self.assertEqual(keys, ["COMMENT", "RATING", "PHOTO", "PUBLISHED", "CHANGES_REQUESTED"])
+        self.assertContains(response, 'name="COMMENT-in_app" aria-label="Someone comments on one of my crags: in the app" checked')
+        self.assertContains(response, 'name="COMMENT-email" aria-label="Someone comments on one of my crags: by email">')
+        self.assertContains(response, "<th scope=\"col\">By email</th>", html=False)
+
+    def test_moderators_also_get_the_review_row(self):
+        self.client.force_login(self.manager())
+        response = self.client.get(reverse("notification_settings"))
+        self.assertEqual(response.context["rows"][-1]["key"], "REVIEW_WAITING")
+
+    def test_saving_stores_ticked_and_unticked_channels(self):
+        self.client.force_login(self.alice)
+        response = self.client.post(
+            reverse("notification_settings"),
+            {"COMMENT-email": "on", "PUBLISHED-in_app": "on", "PUBLISHED-email": "on"},
+            follow=True,
+        )
+        self.assertContains(response, "Notification settings saved.")
+        self.alice.refresh_from_db()
+        saved = self.alice.notification_settings
+        self.assertEqual(saved["COMMENT"], {"in_app": False, "email": True})
+        self.assertEqual(saved["RATING"], {"in_app": False, "email": False})
+        self.assertEqual(saved["PUBLISHED"], {"in_app": True, "email": True})
+        self.assertNotIn("REVIEW_WAITING", saved)  # not a moderator: row not shown, not touched
+
+    def test_saving_keeps_hidden_moderator_setting(self):
+        self.set(self.alice, REVIEW_WAITING={"in_app": False, "email": False})
+        self.client.force_login(self.alice)
+        self.client.post(reverse("notification_settings"), {})
+        self.alice.refresh_from_db()
+        self.assertEqual(self.alice.notification_settings["REVIEW_WAITING"], {"in_app": False, "email": False})
+
+    def test_page_requires_login(self):
+        self.assertEqual(self.client.get(reverse("notification_settings")).status_code, 302)
+
+    def test_hint_without_email_address(self):
+        User.objects.filter(pk=self.alice.pk).update(email="")
+        self.client.force_login(self.alice)
+        self.assertContains(self.client.get(reverse("notification_settings")), "You have no email address yet")
+
+    def test_profile_and_notifications_page_link_to_settings(self):
+        self.client.force_login(self.alice)
+        link = f'href="{reverse("notification_settings")}"'
+        self.assertContains(self.client.get(reverse("profiles:detail", args=["alice"])), link)
+        self.assertContains(self.client.get(reverse("notifications")), link)
+
+    # --- in the app -----------------------------------------------------------------
+
+    def test_in_app_off_creates_no_notification(self):
+        self.set(self.alice, COMMENT={"in_app": False, "email": False})
+        self.comment()
+        self.assertFalse(Notification.objects.filter(user=self.alice).exists())
+
+    def test_moderation_counter_can_be_switched_off(self):
+        manager = self.manager()
+        self.client.force_login(manager)
+        self.assertContains(self.client.get(reverse("crags:list")), 'class="nav-count"')
+        self.set(manager, REVIEW_WAITING={"in_app": False, "email": True})
+        response = self.client.get(reverse("crags:list"))
+        self.assertNotIn("open_moderation_count", response.context)
+        self.assertContains(response, ">Moderation</a>")  # the link itself stays
+
+    # --- email ----------------------------------------------------------------------
+
+    def test_comment_email_when_switched_on(self):
+        self.set(self.alice, COMMENT={"in_app": True, "email": True})
+        self.comment()
+        [message] = mail.outbox
+        self.assertEqual(message.to, ["alice@example.com"])
+        self.assertEqual(message.subject, "New comment: “Public”")
+        self.assertIn("bob commented on “Public”.", message.body)
+        self.assertIn(reverse("crags:detail", args=[self.published.pk]) + "#comments", message.body)
+        self.assertIn(reverse("notification_settings"), message.body)
+
+    def test_email_only_switch_works_without_in_app(self):
+        self.set(self.alice, COMMENT={"in_app": False, "email": True})
+        self.comment()
+        self.assertEqual(len(mail.outbox), 1)
+        self.assertFalse(Notification.objects.filter(user=self.alice).exists())
+
+    def test_no_email_for_own_comment(self):
+        self.set(self.alice, COMMENT={"in_app": True, "email": True})
+        self.comment(self.alice)
+        self.assertEqual(mail.outbox, [])
+
+    def test_rating_email_only_for_a_new_rating(self):
+        self.set(self.alice, RATING={"in_app": True, "email": True})
+        self.rate("4")
+        self.rate("5")  # changed: no second email
+        self.assertEqual(len(mail.outbox), 1)
+        self.assertIn("bob rated “Public”.", mail.outbox[0].body)
+
+    def test_photo_email_counts_the_photos(self):
+        self.set(self.alice, PHOTO={"in_app": True, "email": True})
+        self.client.force_login(self.staff)
+        self.client.post(
+            reverse("crags:photo_add", args=[self.draft.pk]),
+            {"category": Photo.Category.CRAG, "images": [image_upload("a.jpg"), image_upload("b.jpg")]},
+        )
+        [message] = mail.outbox
+        self.assertIn("staff added 2 photos to “Draft entry”.", message.body)
+
+    def test_review_result_email_can_be_switched_off_in_app_stays(self):
+        self.set(self.alice, PUBLISHED={"in_app": True, "email": False})
+        self.pending.transition(Crag.Status.PUBLISHED, self.manager())
+        self.assertEqual(mail.outbox, [])
+        self.assertTrue(Notification.objects.filter(user=self.alice, kind="PUBLISHED").exists())
+
+    def test_changes_requested_email_still_sent_by_default(self):
+        self.pending.transition(Crag.Status.NEEDS_CHANGES, self.manager(), "Please add the approach.")
+        self.assertEqual([m.to for m in mail.outbox], [["alice@example.com"]])
+
+    def test_moderator_review_email_can_be_switched_off(self):
+        keen, quiet = self.manager("keen"), self.manager("quiet")
+        self.set(quiet, REVIEW_WAITING={"in_app": True, "email": False})
+        self.draft.transition(Crag.Status.PENDING, self.alice)
+        recipients = sorted(address for m in mail.outbox for address in m.to)
+        self.assertIn("keen@example.com", recipients)
+        self.assertNotIn("quiet@example.com", recipients)
+
+    def test_privacy_page_mentions_the_settings(self):
+        self.assertContains(self.client.get("/docs/privacy/"), "notification settings")

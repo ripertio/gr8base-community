@@ -4,6 +4,7 @@
 
 {% block content %}
 <h1>Notifications</h1>
+<p><small><a href="{% url 'notification_settings' %}">Notification settings</a>: choose what you get in the app and by email.</small></p>
 
 {% if notifications %}
     <ul class="notification-list">

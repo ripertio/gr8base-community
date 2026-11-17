@@ -186,3 +186,7 @@ a.nav-count:hover,a.nav-count:focus-visible{background:var(--pico-primary-hover)
 .review-entries li.review-returned{border-left-color:#d97706}
 .review-entries li.review-published{border-left-color:#16a34a}
 .review-entries li.review-rejected{border-left-color:#dc2626}
+/* closed review: a collapsed "Review history" */
+details.review-closed{margin:2rem 0}
+details.review-closed>summary{font-weight:600}
+details.review-closed>summary small{color:var(--pico-muted-color);font-weight:normal}

@@ -3228,6 +3228,17 @@ class ReviewThreadTests(CragTestBase):
         page = self.client.get(reverse("crags:detail", args=[self.pending.pk]))
         self.assertContains(page, "This review is closed.")
         self.assertNotContains(page, 'id="review-text"')
+        # collapsed history: RETURNED, SUBMITTED, PUBLISHED
+        self.assertContains(page, '<details id="review" class="review-thread review-closed">')
+        self.assertContains(page, "Review history <small>(3 steps)</small>")
+        self.assertNotContains(page, '<section id="review"')
+
+    def test_open_review_is_expanded(self):
+        self.send_back()
+        self.client.force_login(self.alice)
+        page = self.client.get(reverse("crags:detail", args=[self.pending.pk]))
+        self.assertContains(page, '<section id="review" class="review-thread">')
+        self.assertNotContains(page, "Review history")
 
     def test_empty_and_too_long_messages_are_refused(self):
         self.send_back()

@@ -1,6 +1,12 @@
 {# Private review conversation (crags/views.py review_context): submitter and moderators only. #}
+{# Open review: expanded with the reply form. Closed (published, rejected): collapsed history. #}
+{% if review.can_reply %}
 <section id="review" class="review-thread">
     <h2>Review</h2>
+{% else %}
+<details id="review" class="review-thread review-closed">
+    <summary>Review history <small>({{ review.entries|length }} step{{ review.entries|length|pluralize }})</small></summary>
+{% endif %}
     <p><small>Only {% if review.is_submitter %}you and the moderators{% else %}the submitter and the moderators{% endif %} see this conversation.</small></p>
 
     {% if review.entries %}
@@ -32,4 +38,8 @@
     {% else %}
         <p><small>This review is closed.</small></p>
     {% endif %}
+{% if review.can_reply %}
 </section>
+{% else %}
+</details>
+{% endif %}

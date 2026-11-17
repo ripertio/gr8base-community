@@ -33,6 +33,10 @@ NOTIFICATION_TYPES = (
     NotificationType("CHANGES_REQUESTED", "Changes are requested for my crag", True, True),
     # new with the review thread; on by email too, reviews need quick answers
     NotificationType("REVIEW_MESSAGE", "A new message in the review of a crag", True, True),
+    # change requests ("Suggest a change"), new with that feature
+    NotificationType("CHANGE_REQUEST", "Someone suggests a change to one of my crags", True, True),
+    NotificationType("CHANGE_REQUEST_MESSAGE", "A new message in a change request", True, True),
+    NotificationType("CHANGE_REQUEST_CLOSED", "My change request was handled", True, True),
     # in the app: the counter next to "Moderation"
     NotificationType("REVIEW_WAITING", "A crag is waiting for review", True, True, moderators_only=True),
 )
@@ -139,7 +143,7 @@ def notify_moderators(crag, actor=None):
         logger.exception("moderator mail failed crag=%s", crag.pk)
 
 
-def notify_in_app(user, kind, crag, actor=None, count=1):
+def notify_in_app(user, kind, crag, actor=None, count=1, change_request=None):
     """Add an in-app notification for user about their crag. Never raises.
 
     Nothing is created for your own actions or for inactive accounts. Repeated
@@ -163,12 +167,15 @@ def notify_in_app(user, kind, crag, actor=None, count=1):
                 existing.created_at = timezone.now()
                 existing.save(update_fields=["count", "created_at"])
                 return
-        Notification.objects.create(user=user, kind=kind, crag=crag, actor=actor, count=count)
+        Notification.objects.create(
+            user=user, kind=kind, crag=crag, actor=actor, count=count,
+            change_request=change_request,
+        )
     except Exception:
         logger.exception("notification failed crag=%s kind=%s", crag.pk, kind)
 
 
-def email_owner(user, kind, crag, actor=None, count=1, extra=""):
+def email_owner(user, kind, crag, actor=None, count=1, extra="", change_request=None):
     """Mail user about kind on crag, if they want it (see NOTIFICATION_TYPES).
 
     extra (e.g. a review message) is quoted in the mail. Never raises.
@@ -183,14 +190,18 @@ def email_owner(user, kind, crag, actor=None, count=1, extra=""):
         if not wants(user, kind, "email"):
             return
         # an unsaved Notification only to build the same text as in the app
-        notice = Notification(user=user, kind=kind, crag=crag, actor=actor, count=count)
+        notice = Notification(
+            user=user, kind=kind, crag=crag, actor=actor, count=count,
+            change_request=change_request,
+        )
         subject = f"{Notification.Kind(kind).label}: \u201c{crag.name}\u201d"
         quoted = ["", *(f"> {line}" for line in extra.splitlines())] if extra else []
+        where = "the change request" if change_request is not None else "the crag"
         body = "\n".join([
             notice.text,
             *quoted,
             "",
-            f"Open the crag: {settings.SITE_URL}{notice.url}",
+            f"Open {where}: {settings.SITE_URL}{notice.url}",
             "",
             "You can choose which emails you get in your notification settings:",
             settings.SITE_URL + reverse("notification_settings"),
@@ -203,11 +214,11 @@ def email_owner(user, kind, crag, actor=None, count=1, extra=""):
         logger.exception("owner mail failed crag=%s kind=%s", crag.pk, kind)
 
 
-def notify_owner(user, kind, crag, actor=None, count=1, email=True, extra=""):
+def notify_owner(user, kind, crag, actor=None, count=1, email=True, extra="", change_request=None):
     """In the app and, if the user wants it, by email. Never raises."""
-    notify_in_app(user, kind, crag, actor, count)
+    notify_in_app(user, kind, crag, actor, count, change_request)
     if email:
-        email_owner(user, kind, crag, actor, count, extra)
+        email_owner(user, kind, crag, actor, count, extra, change_request)
 
 
 def review_participants(crag):
@@ -238,3 +249,60 @@ def notify_review_message(message):
             )
     except Exception:
         logger.exception("review message notification failed crag=%s", message.crag_id)
+
+
+def change_request_participants(change_request):
+    """The requester, the crag's creator and moderators who wrote in or closed it."""
+    people = [change_request.requester, change_request.crag.created_by, change_request.closed_by]
+    people += [message.author for message in change_request.messages.select_related("author")]
+    unique = {}
+    for user in people:
+        if user is None or user.pk in unique:
+            continue
+        if user.pk in (change_request.requester_id, change_request.crag.created_by_id) or can_moderate(user):
+            unique[user.pk] = user
+    return list(unique.values())
+
+
+def notify_change_request(change_request):
+    """A new change request: tell the crag's creator (moderators see the queue). Never raises."""
+    from .models import Notification
+
+    try:
+        notify_owner(
+            change_request.crag.created_by, Notification.Kind.CHANGE_REQUEST,
+            change_request.crag, change_request.requester, extra=change_request.text,
+            change_request=change_request,
+        )
+    except Exception:
+        logger.exception("change request notification failed request=%s", change_request.pk)
+
+
+def notify_change_request_message(message):
+    """A reply: everyone in the request except its author. Never raises."""
+    from .models import Notification
+
+    try:
+        change_request = message.change_request
+        for user in change_request_participants(change_request):
+            notify_owner(
+                user, Notification.Kind.CHANGE_REQUEST_MESSAGE, change_request.crag,
+                message.author, extra=message.text, change_request=change_request,
+            )
+    except Exception:
+        logger.exception("change request message notification failed request=%s",
+                         message.change_request_id)
+
+
+def notify_change_request_closed(change_request, note=""):
+    """Done or declined: tell the requester. Never raises."""
+    from .models import Notification
+
+    try:
+        notify_owner(
+            change_request.requester, Notification.Kind.CHANGE_REQUEST_CLOSED,
+            change_request.crag, change_request.closed_by, extra=note,
+            change_request=change_request,
+        )
+    except Exception:
+        logger.exception("change request closed notification failed request=%s", change_request.pk)

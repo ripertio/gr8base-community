@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+
+{% block title %}Suggest a change – {{ crag.name }} – gr8base community{% endblock %}
+
+{% block content %}
+<p><a href="{% url 'crags:detail' crag.pk %}">← {{ crag.name }}</a></p>
+<h1>Suggest a change</h1>
+<p>Is something on “{{ crag.name }}” wrong or out of date? Tell the crag's creator and the moderators. Only they see your suggestion, and photos are only published if they accept them.</p>
+
+{% if errors %}
+    <ul class="errorlist">{% for error in errors %}<li>{{ error }}</li>{% endfor %}</ul>
+{% endif %}
+
+<form method="post" enctype="multipart/form-data">
+    {% csrf_token %}
+    <label for="id_topic">What is it about?
+        <select id="id_topic" name="topic">
+            {% for value, label in topics %}
+                <option value="{{ value }}"{% if values.topic == value %} selected{% endif %}>{{ label }}</option>
+            {% endfor %}
+        </select>
+    </label>
+
+    <label for="id_text">What should change?
+        <textarea id="id_text" name="text" rows="5" maxlength="{{ max_length }}"
+                  placeholder="For example: The parking at the road was closed in 2026, use the one at the church.">{{ values.text }}</textarea>
+    </label>
+
+    <fieldset>
+        <legend>Photos (optional, up to {{ max_files }})</legend>
+        <label for="id_category">Category
+            <select id="id_category" name="category">
+                {% for value, label in categories %}
+                    <option value="{{ value }}"{% if values.category == value %} selected{% endif %}>{{ label }}</option>
+                {% endfor %}
+            </select>
+        </label>
+        <input type="file" name="images" id="id_images" multiple aria-label="Photos"
+               accept="image/jpeg,image/png,image/webp,image/heic,image/heif">
+        <small>Location data is removed from photos. Please do not upload identifiable people without their consent.</small>
+    </fieldset>
+
+    <button type="submit" class="pill pill-primary">{% include "_icon.html" with name="send" %}Send suggestion</button>
+</form>
+{% endblock %}

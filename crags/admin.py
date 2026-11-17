@@ -9,7 +9,12 @@ from django.db.models import Count
 from .forms import process_image
 from django.template.response import TemplateResponse
 
-from .models import Area, Crag, InvalidTransition, CragComment, CragRating, Feature, Guidebook, Photo
+from django.utils.html import format_html
+
+from .models import (
+    Area, ChangeRequest, ChangeRequestMessage, ChangeRequestPhoto, Crag, InvalidTransition,
+    CragComment, CragRating, Feature, Guidebook, Notification, Photo, ReviewMessage,
+)
 
 
 @admin.register(Area)
@@ -241,3 +246,120 @@ class CragRatingAdmin(admin.ModelAdmin):
 class CragCommentAdmin(admin.ModelAdmin):
     list_display = ("crag", "user", "created_at")
     search_fields = ("crag__name", "user__username", "text")
+
+
+class SuperuserCleanupMixin:
+    """Read-only in the admin; only superusers see it and may delete (clean up).
+
+    Change requests are created and handled on the site; the admin is for looking
+    and cleaning up, so nothing is added or edited here.
+    """
+
+    def has_module_permission(self, request):
+        return request.user.is_superuser
+
+    def has_view_permission(self, request, obj=None):
+        return request.user.is_superuser
+
+    def has_add_permission(self, request, obj=None):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return request.user.is_superuser
+
+
+class ChangeRequestMessageInline(SuperuserCleanupMixin, admin.TabularInline):
+    model = ChangeRequestMessage
+    fields = ("created_at", "author", "kind", "text")
+    readonly_fields = fields
+    extra = 0
+
+
+class ChangeRequestPhotoInline(SuperuserCleanupMixin, admin.TabularInline):
+    model = ChangeRequestPhoto
+    fields = ("preview", "category", "uploaded_by", "created_at")
+    readonly_fields = fields
+    extra = 0
+
+    @admin.display(description="Photo")
+    def preview(self, obj):
+        return format_html('<img src="{}" alt="" style="max-height:6rem">', obj.image.url)
+
+
+@admin.register(ChangeRequest)
+class ChangeRequestAdmin(SuperuserCleanupMixin, admin.ModelAdmin):
+    """Suggested changes ("Suggest a change"). Superusers clean up here:
+    "Delete selected" removes requests with their messages, photo files and
+    notifications; "Delete suggested photos" keeps the text history."""
+
+    list_display = ("crag", "topic", "requester", "status", "photo_count", "created_at", "closed_at")
+    list_filter = ("status", "topic")
+    search_fields = ("crag__name", "requester__username", "text")
+    date_hierarchy = "created_at"
+    fields = ("crag", "requester", "topic", "text", "status", "created_at", "closed_by", "closed_at")
+    readonly_fields = fields
+    inlines = (ChangeRequestMessageInline, ChangeRequestPhotoInline)
+    actions = ["delete_suggested_photos"]
+
+    def get_queryset(self, request):
+        return (
+            super().get_queryset(request)
+            .select_related("crag", "requester")
+            .annotate(photo_total=Count("photos"))
+        )
+
+    @admin.display(description="Photos", ordering="photo_total")
+    def photo_count(self, obj):
+        return obj.photo_total
+
+    @admin.action(description="Delete suggested photos (keep the requests)")
+    def delete_suggested_photos(self, request, queryset):
+        if not request.user.is_superuser:
+            raise PermissionDenied
+        # files go with the rows (post_delete signal)
+        deleted, _ = ChangeRequestPhoto.objects.filter(change_request__in=queryset).delete()
+        self.message_user(request, f"Deleted {deleted} suggested photo(s).", messages.SUCCESS)
+
+
+@admin.register(ReviewMessage)
+class ReviewMessageAdmin(SuperuserCleanupMixin, admin.ModelAdmin):
+    """The private review conversations (moderators' "Needs changes" and the replies).
+
+    Superusers clean up here: "Delete selected" removes single entries; "Delete
+    the whole review" removes every entry of the selected crags' reviews and the
+    notifications pointing to them.
+    """
+
+    list_display = ("crag", "kind", "author", "short_text", "created_at")
+    list_filter = ("kind", "crag__status")
+    search_fields = ("crag__name", "author__username", "text")
+    date_hierarchy = "created_at"
+    fields = ("crag", "kind", "author", "text", "created_at")
+    readonly_fields = fields
+    actions = ["delete_whole_reviews"]
+
+    def get_queryset(self, request):
+        return super().get_queryset(request).select_related("crag", "author")
+
+    @admin.display(description="Text")
+    def short_text(self, obj):
+        return obj.text[:80] + ("…" if len(obj.text) > 80 else "")
+
+    @admin.action(description="Delete the whole review of the selected crags")
+    def delete_whole_reviews(self, request, queryset):
+        if not request.user.is_superuser:
+            raise PermissionDenied
+        crag_ids = list(queryset.values_list("crag_id", flat=True).distinct())
+        deleted, _ = ReviewMessage.objects.filter(crag_id__in=crag_ids).delete()
+        Notification.objects.filter(
+            kind=Notification.Kind.REVIEW_MESSAGE, crag_id__in=crag_ids
+        ).delete()
+        self.message_user(
+            request,
+            f"Deleted {deleted} review entr{'y' if deleted == 1 else 'ies'} "
+            f"of {len(crag_ids)} crag{'' if len(crag_ids) == 1 else 's'}.",
+            messages.SUCCESS,
+        )

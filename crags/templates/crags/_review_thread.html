@@ -33,7 +33,7 @@
             {% if next %}<input type="hidden" name="next" value="{{ next }}">{% endif %}
             <label for="review-text">{% if review.is_submitter %}Reply to the moderators{% else %}Reply to the submitter{% endif %}</label>
             <textarea id="review-text" name="text" rows="3" maxlength="{{ review.max_length }}" required></textarea>
-            <button type="submit">Send</button>
+            <button type="submit" class="pill pill-primary">{% include "_icon.html" with name="send" %}Send</button>
         </form>
     {% else %}
         <p><small>This review is closed.</small></p>

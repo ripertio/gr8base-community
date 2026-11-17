@@ -6,7 +6,7 @@ from django.db.models import Case, Count, F, IntegerField, OuterRef, Subquery, V
 from django.shortcuts import render
 from django.utils.http import urlencode
 
-from .models import Crag, ReviewMessage
+from .models import ChangeRequest, Crag, ReviewMessage
 
 # Removed crags are never listed here (they only exist in the admin).
 STATUSES = [(value, label) for value, label in Crag.Status.choices if value != Crag.Status.REMOVED]
@@ -111,6 +111,10 @@ def queue(request):
             "awaiting_answer": awaiting_answer(
                 Crag.objects.select_related("created_by")
             ).order_by("name"),
+            # shown above the list whatever the filter
+            "open_change_requests": ChangeRequest.objects.filter(
+                status=ChangeRequest.Status.OPEN
+            ).exclude(crag__status=Crag.Status.REMOVED).select_related("crag", "requester"),
             "chips": chips,
             "filtered": bool(selected),
             "show_all_query": urlencode([("status", "")]),

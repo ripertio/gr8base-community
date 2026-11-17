@@ -17,9 +17,10 @@ from gr8base.offline import offline_cacheable
 
 from .forms import BulkPhotoForm, CragForm, coordinates_from_photos, process_image
 from .models import (
-    Area, Crag, CragComment, CragRating, Feature, InvalidTransition, Notification, Photo,
-    ReviewMessage,
+    Area, ChangeRequest, Crag, CragComment, CragRating, Feature, InvalidTransition,
+    Notification, Photo, ReviewMessage,
 )
+from .change_requests import can_handle, can_suggest, requests_for_crag_page
 from .notifications import (
     CHANNELS, can_moderate, notify_owner, notify_review_message, types_for, wants,
 )
@@ -390,6 +391,9 @@ def crag_detail(request, pk):
             "my_rating": my_rating,
             "comments": crag.comments.select_related("user"),
             "review": review_context(request.user, crag),
+            "can_suggest": can_suggest(request.user, crag),
+            "change_requests": requests_for_crag_page(request.user, crag),
+            "handles_changes": can_handle(request.user, crag),
             "can_comment": request.user.is_authenticated
             and crag.status == Crag.Status.PUBLISHED,
             "comment_max_length": CragComment.MAX_LENGTH,
@@ -547,7 +551,22 @@ def crag_mine(request):
         .select_related("area")
         .order_by("-updated_at")
     )
-    return render(request, "crags/crag_mine.html", {"crags": crags})
+    change_requests = ChangeRequest.objects.exclude(
+        crag__status=Crag.Status.REMOVED
+    ).select_related("crag", "requester")
+    return render(
+        request,
+        "crags/crag_mine.html",
+        {
+            "crags": crags,
+            # waiting for you: suggestions others made for your crags
+            "open_requests": change_requests.filter(
+                crag__created_by=request.user, status=ChangeRequest.Status.OPEN
+            ),
+            # what you suggested elsewhere, newest first
+            "my_suggestions": change_requests.filter(requester=request.user)[:20],
+        },
+    )
 
 
 @login_required

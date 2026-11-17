@@ -1,0 +1,102 @@
+{% extends "base.html" %}
+
+{% block title %}Change request – {{ crag.name }} – gr8base community{% endblock %}
+
+{% block content %}
+<p><a href="{% url 'crags:detail' crag.pk %}">← {{ crag.name }}</a></p>
+<header class="status-header">
+    <h1>Change request</h1>
+    <ul class="chips"><li class="chip{% if change_request.status == 'DONE' %} chip-good{% elif change_request.status == 'DECLINED' %} chip-bad{% endif %}">{{ change_request.get_status_display }}</li></ul>
+</header>
+<p><small>For “<a href="{% url 'crags:detail' crag.pk %}">{{ crag.name }}</a>”. Only the person who suggested it, the crag's creator and the moderators see this page.</small></p>
+
+<ol id="messages" class="review-entries">
+    <li class="review-message">
+        <small><strong>{{ change_request.requester_name }}</strong> suggested a change · {{ change_request.get_topic_display }} · <time datetime="{{ change_request.created_at|date:'c' }}">{{ change_request.created_at|date:"j M Y, H:i" }}</time></small>
+        {% if change_request.text %}<p>{{ change_request.text|linebreaksbr }}</p>{% endif %}
+    </li>
+    {% for entry in entries %}
+        {% if entry.kind == "MESSAGE" %}
+            <li class="review-message">
+                <small><strong>{{ entry.author_name }}</strong> · <time datetime="{{ entry.created_at|date:'c' }}">{{ entry.created_at|date:"j M Y, H:i" }}</time></small>
+                <p>{{ entry.text|linebreaksbr }}</p>
+            </li>
+        {% else %}
+            <li class="review-event{% if entry.kind == 'DONE' %} review-published{% elif entry.kind == 'DECLINED' %} review-rejected{% endif %}">
+                <small><strong>{{ entry.get_kind_display }}</strong> by {{ entry.author_name }} · <time datetime="{{ entry.created_at|date:'c' }}">{{ entry.created_at|date:"j M Y, H:i" }}</time></small>
+                {% if entry.text %}<p>{{ entry.text|linebreaksbr }}</p>{% endif %}
+            </li>
+        {% endif %}
+    {% endfor %}
+</ol>
+
+{% if photos and not can_handle %}
+    <section>
+        <h2>Suggested photos</h2>
+        <div class="suggested-photos">
+            {% for photo in photos %}
+                <figure><img src="{{ photo.image.url }}" alt="Suggested photo ({{ photo.get_category_display }})" loading="lazy"><figcaption><small>{{ photo.get_category_display }}</small></figcaption></figure>
+            {% endfor %}
+        </div>
+    </section>
+{% endif %}
+
+{% if can_handle %}
+    {# the creator or a moderator: edit the crag, then close the request #}
+    <form method="post" action="{% url 'crags:change_request_close' change_request.pk %}" class="change-request-handle">
+        {% csrf_token %}
+        <h2>Handle this request</h2>
+        <p><small>Make the change by <a href="{% url 'crags:edit' crag.pk %}">editing the crag</a>, then mark the request as done, or decline it.</small></p>
+        {% if photos %}
+            <fieldset>
+                <legend>Suggested photos: tick the ones to add to the gallery</legend>
+                {% if photo_limit %}<p><small>This crag has {{ photo_count }} of {{ max_photos }} photos. Photos you don't tick are deleted when you close the request.</small></p>
+                {% else %}<p><small>Photos you don't tick are deleted when you close the request.</small></p>{% endif %}
+                <div class="suggested-photos">
+                    {% for photo in photos %}
+                        <figure>
+                            <img src="{{ photo.image.url }}" alt="Suggested photo {{ forloop.counter }}" loading="lazy">
+                            <figcaption>
+                                <label><input type="checkbox" name="accept" value="{{ photo.pk }}" checked> Add to gallery</label>
+                                <select name="category-{{ photo.pk }}" aria-label="Category of photo {{ forloop.counter }}">
+                                    {% for value, label in categories %}
+                                        <option value="{{ value }}"{% if photo.category == value %} selected{% endif %}>{{ label }}</option>
+                                    {% endfor %}
+                                </select>
+                            </figcaption>
+                        </figure>
+                    {% endfor %}
+                </div>
+            </fieldset>
+        {% endif %}
+        <label for="close-text">Note to {{ change_request.requester_name }} (optional)
+            <textarea id="close-text" name="text" rows="2" maxlength="{{ max_length }}" placeholder="Thanks, updated the parking!"></textarea>
+        </label>
+        <div class="pills">
+            <button type="submit" name="action" value="done" class="pill pill-primary">{% include "_icon.html" with name="check" %}Done</button>
+            <button type="submit" name="action" value="declined" class="pill pill-danger"
+                    onclick="return confirm('Decline this change request? Suggested photos will be deleted.')">{% include "_icon.html" with name="x" %}Decline</button>
+        </div>
+    </form>
+{% endif %}
+
+{% if can_withdraw %}
+    {# the requester changed their mind: closes it and deletes the suggested photos #}
+    <form method="post" action="{% url 'crags:change_request_withdraw' change_request.pk %}"
+          onsubmit="return confirm('Withdraw your suggestion? Photos you added will be deleted.')">
+        {% csrf_token %}
+        <p><button type="submit" class="pill pill-danger">{% include "_icon.html" with name="undo" %}Withdraw suggestion</button></p>
+    </form>
+{% endif %}
+
+{% if can_reply %}
+    <form method="post" action="{% url 'crags:change_request_reply' change_request.pk %}">
+        {% csrf_token %}
+        <label for="reply-text">Write a message</label>
+        <textarea id="reply-text" name="text" rows="3" maxlength="{{ max_length }}" required></textarea>
+        <button type="submit" class="pill pill-primary">{% include "_icon.html" with name="send" %}Send message</button>
+    </form>
+{% else %}
+    <p><small>This change request is closed.</small></p>
+{% endif %}
+{% endblock %}

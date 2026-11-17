@@ -7,6 +7,34 @@
 
     <p><a href="{% url 'crags:create' %}" role="button">Add a new crag</a></p>
 
+    {% if open_requests %}
+        <article class="change-requests">
+            <header><strong>Open change requests on your crags</strong></header>
+            <ul>
+                {% for change in open_requests %}
+                    <li>
+                        <a href="{% url 'crags:change_request' change.pk %}">{{ change.crag.name }}: {{ change.get_topic_display }}</a>
+                        <small>by {{ change.requester_name }} · {{ change.created_at|date:"j M Y" }}</small>
+                    </li>
+                {% endfor %}
+            </ul>
+        </article>
+    {% endif %}
+
+    {% if my_suggestions %}
+        <article class="change-requests">
+            <header><strong>Your suggestions</strong></header>
+            <ul>
+                {% for change in my_suggestions %}
+                    <li>
+                        <a href="{% url 'crags:change_request' change.pk %}">{{ change.crag.name }}: {{ change.get_topic_display }}</a>
+                        <small>{{ change.get_status_display }} · {{ change.created_at|date:"j M Y" }}</small>
+                    </li>
+                {% endfor %}
+            </ul>
+        </article>
+    {% endif %}
+
     {% for crag in crags %}
         <article>
             <header>

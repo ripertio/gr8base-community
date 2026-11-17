@@ -190,3 +190,40 @@ a.nav-count:hover,a.nav-count:focus-visible{background:var(--pico-primary-hover)
 details.review-closed{margin:2rem 0}
 details.review-closed>summary{font-weight:600}
 details.review-closed>summary small{color:var(--pico-muted-color);font-weight:normal}
+/* change requests: suggested photos */
+.suggested-photos{display:grid;grid-template-columns:repeat(auto-fill,minmax(12rem,1fr));gap:1rem;margin-bottom:1rem}
+.suggested-photos figure{margin:0}
+.suggested-photos img{width:100%;aspect-ratio:4/3;object-fit:cover;border-radius:var(--pico-border-radius)}
+.suggested-photos figcaption label{margin:.4rem 0 .25rem}
+.suggested-photos select{margin-bottom:0}
+
+/* Pill buttons: chip-sized actions (crag page, review, change requests).
+   .pill = light grey, .pill-primary = filled blue (the main action),
+   .pill-danger = red outline (delete, reject), .pill-small for tight spots. */
+a.pill,button.pill{display:inline-flex;align-items:center;justify-content:center;gap:.4rem;width:auto;height:2.1rem;margin:0;padding:0 .9rem;border:var(--pico-border-width) solid transparent;border-radius:1.05rem;background:var(--pico-muted-border-color);box-shadow:none;color:var(--pico-primary);font-size:.875rem;font-weight:500;line-height:1;text-decoration:none;white-space:nowrap;cursor:pointer}
+a.pill:hover,button.pill:hover{filter:brightness(.95);color:var(--pico-primary)}
+a.pill:focus-visible,button.pill:focus-visible{outline:2px solid var(--pico-primary-focus);outline-offset:2px;box-shadow:none}
+.pill svg{flex:none}
+a.pill-primary,button.pill-primary,a.pill-primary:hover,button.pill-primary:hover{background:var(--pico-primary-background);color:var(--pico-primary-inverse)}
+a.pill-danger,button.pill-danger,a.pill-danger:hover,button.pill-danger:hover{background:transparent;border-color:#fca5a5;color:#b91c1c}
+a.pill-danger:hover,button.pill-danger:hover{filter:none;background:#fef2f2}
+a.pill-small,button.pill-small{height:1.75rem;padding:0 .65rem;font-size:.8rem;gap:.3rem}
+.pill-small svg{width:14px;height:14px}
+.pills{display:flex;flex-wrap:wrap;align-items:center;gap:.5rem;margin:0 0 var(--pico-spacing)}
+.pills form{display:inline-flex;margin:0}
+.pill-divider{width:1px;height:1.5rem;margin:0 .25rem;background:var(--pico-muted-border-color)}
+dialog footer.pills{justify-content:flex-end;margin-bottom:0}
+@media(max-width:600px){
+  a.pill,button.pill{height:1.9rem;padding:0 .75rem;gap:.3rem;font-size:.8rem}
+  .pill svg{width:14px;height:14px}
+  a.pill-small,button.pill-small{height:1.6rem;padding:0 .55rem;font-size:.75rem}
+  .pill-divider{display:none}
+}
+/* crag page header: back link, name with status chip, area, actions */
+.crag-header .crag-back{display:inline-block;margin-bottom:.5rem;font-size:.9rem}
+.crag-title{display:flex;flex-wrap:wrap;align-items:center;gap:.4rem .75rem}
+.crag-title h1{margin:0}
+.crag-header .area{margin:.25rem 0 .9rem}
+.status-chip{display:inline-block;padding:.15rem .65rem;border-radius:1rem;background:#fef3c7;color:#92400e;font-size:.8rem;font-weight:600;line-height:1.4;white-space:nowrap}
+.status-chip.status-rejected{background:#fee2e2;color:#991b1b}
+.status-chip.status-draft,.status-chip.status-removed{background:var(--pico-muted-border-color);color:var(--pico-color)}

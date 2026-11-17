@@ -9,9 +9,9 @@
             <textarea id="return-reason" name="reason" form="{{ form_id }}" rows="4"
                       placeholder="At least {{ min_reason_length }} characters. The submitter sees this text."></textarea>
         </label>
-        <footer class="actions">
-            <button type="button" class="secondary" onclick="this.closest('dialog').close()">Cancel</button>
-            <button type="submit" name="action" value="return" form="{{ form_id }}">Send back</button>
+        <footer class="pills">
+            <button type="button" class="pill" onclick="this.closest('dialog').close()">Cancel</button>
+            <button type="submit" name="action" value="return" form="{{ form_id }}" class="pill pill-primary">{% include "_icon.html" with name="undo" %}Send back</button>
         </footer>
     </article>
 </dialog>

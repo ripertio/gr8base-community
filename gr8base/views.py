@@ -138,13 +138,37 @@ def web_manifest(request):
 
 
 def healthz(request):
+    """Plain "ok" for the container check and uptime monitors."""
     try:
         with connection.cursor() as cursor:
             cursor.execute("SELECT 1")
             cursor.fetchone()
     except Exception:
         return HttpResponse("db unavailable", status=503, content_type="text/plain")
-    return HttpResponse("ok", content_type="text/plain")
+    # HEAD gets no body: gunicorn logs a warning for every HEAD response with one.
+    body = "" if request.method == "HEAD" else "ok"
+    return HttpResponse(body, content_type="text/plain")
+
+
+def robots_txt(request):
+    """Lets crawlers in, keeps them out of account/admin pages, points to the sitemap."""
+    lines = [
+        "User-agent: *",
+        "Disallow: /admin/",
+        "Disallow: /accounts/",
+        "Disallow: /moderation/",
+        "Disallow: /notifications/",
+        "Disallow: /healthz/",
+        "",
+        f"Sitemap: {settings.SITE_URL}/sitemap.xml",
+    ]
+    return HttpResponse("\n".join(lines) + "\n", content_type="text/plain")
+
+
+def site_icon(request):
+    """Browsers and crawlers ask for /favicon.ico and /apple-touch-icon*.png at the root."""
+    name = "favicon-32.png" if "favicon" in request.path else "apple-touch-icon.png"
+    return redirect(static(f"icons/{name}"))
 
 
 CONSENT_COOKIE = "cookie_consent"

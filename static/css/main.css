@@ -22,6 +22,18 @@
 .filters-panel label{margin-bottom:.75rem}
 .filters-panel select{margin-top:.25rem;margin-bottom:0}
 .filters-checks{display:flex;flex-wrap:wrap;gap:0 1.5rem}
+/* multi-select filters (area, aspect): Pico's details.dropdown with checkboxes */
+.filter-field{margin-bottom:.75rem}
+.filter-label{display:block}
+.filters-panel details.dropdown{display:block;margin:.25rem 0 0}
+.filters-panel details.dropdown>summary{display:flex;align-items:center}
+.filters-panel details.dropdown>summary>span{flex:1 1 auto;min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+.filters-panel details.dropdown:has(input:checked)>summary{color:var(--pico-form-element-color)}
+.filters-panel details.dropdown>ul{max-height:18rem;overflow-y:auto}
+.filters-panel details.dropdown li label{margin:0}
+/* one star rating per age group */
+.filter-ratings{margin:0;padding:0;border:0}
+.filter-ratings legend{margin-bottom:.35rem;padding:0;font-weight:600}
 .filters-checks label{margin-bottom:.5rem}
 .filter-count{position:absolute;top:-.35rem;right:-.35rem;display:inline-flex;align-items:center;justify-content:center;min-width:1.2rem;height:1.2rem;padding:0 .3rem;border-radius:1rem;background:var(--pico-primary);color:var(--pico-primary-inverse);font-size:.75rem;line-height:1}
 .crag-meta{display:flex;flex-wrap:wrap;gap:.5rem 1.5rem}
@@ -81,7 +93,8 @@
   .site-nav .nav-links{display:flex;width:auto;flex-direction:row;align-items:center;margin-bottom:0}
 }
 .inline-form{display:inline;margin:0}
-.link-button{display:inline;width:auto;margin:0;padding:0;border:0;background:none;color:var(--pico-primary);font-size:inherit;text-decoration:underline;cursor:pointer}
+/* "button." beats Pico's button[type=submit]{width:100%} */
+button.link-button{display:inline;width:auto;margin:0;padding:0;border:0;background:none;color:var(--pico-primary);font-size:inherit;text-decoration:underline;cursor:pointer}
 .cookie-banner article{max-width:32rem}
 .cookie-banner h2{font-size:1.25rem;margin-bottom:.5rem}
 .cookie-banner p{font-size:.9rem}

@@ -1,6 +1,6 @@
 // Suggestions for the crag list search: matching areas and crags while typing.
 // Picking a crag opens it; picking an area filters the list by that area.
-// While the list is filtered by an area, only crags in that area are suggested.
+// While the list is filtered by areas, only crags in those areas are suggested.
 // Enter without picking a suggestion still runs the normal full-text search.
 //
 // The names come from data-crag-search (a JSON URL), loaded the first time the
@@ -15,23 +15,23 @@
     let areas = [];
     let loading = null;
     const form = input.form;
-    const areaSelect = form.querySelector('select[name="area"]');
+    const areaBoxes = Array.from(form.querySelectorAll('input[name="area"]'));
 
     const MAX_AREAS = 3;
     const MAX_TOTAL = 8;
 
     function source(text) {
-        // With an area filter active, stay inside that area: only its crags and
-        // no other areas (changing the area is the filter dropdown's job).
-        const filterArea = areaSelect ? areaSelect.value : "";
-        const areaItems = areaSelect && !filterArea
+        // With an area filter active, stay inside those areas: only their crags
+        // and no area suggestions (changing areas is the filter panel's job).
+        const filterAreas = new Set(areaBoxes.filter((box) => box.checked).map((box) => box.value));
+        const areaItems = areaBoxes.length && !filterAreas.size
             ? gr8Match(areas, (name) => name, text, MAX_AREAS).map((name) => ({
                   type: "area",
                   text: name,
                   hint: "Area",
               }))
             : [];
-        const candidates = filterArea ? crags.filter((crag) => crag.area === filterArea) : crags;
+        const candidates = filterAreas.size ? crags.filter((crag) => filterAreas.has(crag.area)) : crags;
         const cragItems = gr8Match(candidates, (crag) => crag.name, text, MAX_TOTAL - areaItems.length).map(
             (crag) => ({ type: "crag", text: crag.name, hint: crag.area, url: crag.url })
         );
@@ -45,7 +45,12 @@
                 window.location.href = item.url;
                 return;
             }
-            areaSelect.value = item.text;
+            // only offered while no area is ticked: tick just this one
+            const box = areaBoxes.find((candidate) => candidate.value === item.text);
+            if (!box) {
+                return;
+            }
+            box.checked = true;
             input.value = "";
             form.submit();
         },

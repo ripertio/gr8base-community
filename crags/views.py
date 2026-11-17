@@ -38,6 +38,12 @@ def return_target(request):
     return ""
 
 
+def with_query(url, params):
+    """url with the non-empty params as a query string."""
+    params = {key: value for key, value in params.items() if value}
+    return f"{url}?{urlencode(params)}" if params else url
+
+
 def with_next(url, target):
     """Append ``?next=target`` to url, so the following page can return there."""
     return f"{url}?{urlencode({'next': target})}" if target else url
@@ -112,12 +118,25 @@ def removable_crags(user):
     return Crag.objects.filter(created_by=user)
 
 
+def unique(values):
+    """Non-empty values in their first order, without repeats."""
+    return list(dict.fromkeys(value for value in values if value))
+
+
 AGE_FIELDS = {
     "babies": ("Babies", "rating_babies"),
     "ages_2_4": ("Ages 2–4", "rating_ages_2_4"),
     "ages_5_plus": ("Ages 5+", "rating_ages_5_plus"),
 }
 APPROACH_CHOICES = (5, 10, 15, 20, 30)
+# ?sort= values for the crag list; the first one is the default.
+# updated_at is set on creation too, so a new crag counts as just modified.
+SORT_CHOICES = {
+    "updated": ("Last updated: newest first", ("-updated_at", "-pk")),
+    "updated_oldest": ("Last updated: oldest first", ("updated_at", "pk")),
+    "name": ("Name: A–Z", ("name", "pk")),
+}
+DEFAULT_SORT = "updated"
 STROLLER_SLUG = "stroller_friendly"
 
 
@@ -126,11 +145,22 @@ def crag_list(request):
     crags = Crag.objects.select_related("area").public()
     get = request.GET
     query = get.get("q", "").strip()
-    area_name = get.get("area", "")
-    min_rating = get.get("rating", "")
-    age = get.get("age", "")
-    orientation = get.get("orientation", "")
+    # area and orientation may be given several times (?area=A&area=B)
+    area_names = unique(get.getlist("area"))
+    # one minimum star rating per age group, e.g. ?rating_babies=4&rating_ages_5_plus=3
+    min_ratings = {
+        field: int(get[field])
+        for _, field in AGE_FIELDS.values()
+        if get.get(field, "").isdecimal() and 1 <= int(get[field]) <= 5
+    }
+    orientations = [
+        value for value in unique(get.getlist("orientation"))
+        if value in Crag.Orientation.values
+    ]
     max_approach = get.get("max_approach", "")
+    sort = get.get("sort", "")
+    if sort not in SORT_CHOICES:
+        sort = DEFAULT_SORT
     stroller_approach = get.get("stroller_approach") == "1"
     stroller_base = get.get("stroller_base") == "1"
 
@@ -138,14 +168,9 @@ def crag_list(request):
     hazard_slugs = {h.slug for h in hazards}
     avoid = [slug for slug in get.getlist("avoid") if slug in hazard_slugs]
 
-    if area_name and not Area.objects.filter(name=area_name).exists():
-        area_name = ""
-    if not (min_rating.isdecimal() and 1 <= int(min_rating) <= 5):
-        min_rating = ""
-    if age not in AGE_FIELDS:
-        age = ""
-    if orientation not in Crag.Orientation.values:
-        orientation = ""
+    if area_names:
+        known = set(Area.objects.filter(name__in=area_names).values_list("name", flat=True))
+        area_names = [name for name in area_names if name in known]
     if not (max_approach.isdecimal() and int(max_approach) in APPROACH_CHOICES):
         max_approach = ""
 
@@ -156,24 +181,16 @@ def crag_list(request):
             | Q(description__icontains=query)
         )
 
-    if area_name:
-        crags = crags.filter(area__name=area_name)
+    if area_names:  # any of the areas
+        crags = crags.filter(area__name__in=area_names)
 
-    if age:
-        field = AGE_FIELDS[age][1]
-        if min_rating:
-            crags = crags.filter(**{f"{field}__gte": min_rating})
-        else:
-            crags = crags.filter(**{f"{field}__isnull": False})
-    elif min_rating:
-        crags = crags.filter(
-            Q(rating_babies__gte=min_rating)
-            | Q(rating_ages_2_4__gte=min_rating)
-            | Q(rating_ages_5_plus__gte=min_rating)
-        )
+    # Every age group with a minimum must reach it (a family with a baby and a
+    # 6-year-old needs a crag that is good for both).
+    for field, stars in min_ratings.items():
+        crags = crags.filter(**{f"{field}__gte": stars})
 
-    if orientation:
-        crags = crags.filter(orientation=orientation)
+    if orientations:  # any of the aspects
+        crags = crags.filter(orientation__in=orientations)
 
     if max_approach:
         crags = crags.filter(approach_minutes__lte=max_approach)
@@ -190,7 +207,7 @@ def crag_list(request):
             Q(approach_features__slug=slug) | Q(base_features__slug=slug)
         )
 
-    crags = list(crags.distinct().order_by("name"))
+    crags = list(crags.distinct().order_by(*SORT_CHOICES[sort][1]))
     # Community averages in one query; set on the crags so the template stays simple
     averages = {
         row["crag_id"]: row
@@ -225,10 +242,9 @@ def crag_list(request):
     )
 
     active_filters = (
-        bool(area_name)
-        + bool(min_rating)
-        + bool(age)
-        + bool(orientation)
+        bool(area_names)
+        + len(min_ratings)
+        + bool(orientations)
         + bool(max_approach)
         + stroller_approach
         + stroller_base
@@ -239,17 +255,33 @@ def crag_list(request):
         "crags": crags,
         "areas": areas,
         "query": query,
-        "selected_area": area_name,
-        "selected_rating": min_rating,
-        "selected_age": age,
-        "selected_orientation": orientation,
+        "selected_areas": area_names,
+        # in dropdown order, for the closed dropdown ("Allgäu, Zillertal")
+        "selected_area_labels": [area.name for area in areas if area.name in area_names],
+        "selected_orientations": orientations,
+        # labels in choice order, for the closed dropdown ("South-East, South")
+        "selected_orientation_labels": [
+            label for value, label in Crag.Orientation.choices if value in orientations
+        ],
+        # (field, label, chosen minimum as a string or "") per age group
+        "age_ratings": [
+            (field, label, str(min_ratings.get(field, "")))
+            for label, field in AGE_FIELDS.values()
+        ],
+        "star_choices": [("5", "5 stars"), ("4", "4+ stars"), ("3", "3+ stars"), ("2", "2+ stars"), ("1", "1+ stars")],
         "selected_max_approach": max_approach,
         "stroller_approach": stroller_approach,
         "stroller_base": stroller_base,
         "selected_avoid": avoid,
-        "age_choices": [(key, label) for key, (label, _) in AGE_FIELDS.items()],
         "orientation_choices": Crag.Orientation.choices,
         "approach_choices": APPROACH_CHOICES,
+        "sort_choices": [(value, label) for value, (label, _) in SORT_CHOICES.items()],
+        "selected_sort": sort,
+        # "Clear filters" keeps the search text and the sort order (not a filter)
+        "clear_filters_url": with_query(
+            reverse("crags:list"),
+            {"q": query, "sort": "" if sort == DEFAULT_SORT else sort},
+        ),
         "hazards": hazards,
         "active_filters": active_filters,
         "filters_open": bool(active_filters) or "f" in get,

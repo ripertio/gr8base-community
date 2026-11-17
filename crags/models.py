@@ -730,6 +730,9 @@ class ChangeRequestPhoto(models.Model):
     class Meta:
         ordering = ["created_at", "pk"]
 
+    def __str__(self):
+        return f"Suggested photo for {self.change_request.crag}"
+
 
 @receiver(post_delete, sender=ChangeRequestPhoto)
 def delete_suggested_photo_file(sender, instance, **kwargs):

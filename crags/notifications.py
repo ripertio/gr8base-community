@@ -31,6 +31,8 @@ NOTIFICATION_TYPES = (
     NotificationType("PHOTO", "Someone adds photos to one of my crags", True, False),
     NotificationType("PUBLISHED", "My crag is published", True, True),
     NotificationType("CHANGES_REQUESTED", "Changes are requested for my crag", True, True),
+    # new with the review thread; on by email too, reviews need quick answers
+    NotificationType("REVIEW_MESSAGE", "A new message in the review of a crag", True, True),
     # in the app: the counter next to "Moderation"
     NotificationType("REVIEW_WAITING", "A crag is waiting for review", True, True, moderators_only=True),
 )
@@ -166,10 +168,10 @@ def notify_in_app(user, kind, crag, actor=None, count=1):
         logger.exception("notification failed crag=%s kind=%s", crag.pk, kind)
 
 
-def email_owner(user, kind, crag, actor=None, count=1):
-    """Mail the crag's creator about a comment, rating or photos, if they want it.
+def email_owner(user, kind, crag, actor=None, count=1, extra=""):
+    """Mail user about kind on crag, if they want it (see NOTIFICATION_TYPES).
 
-    Off by default (see NOTIFICATION_TYPES). Never raises.
+    extra (e.g. a review message) is quoted in the mail. Never raises.
     """
     from .models import Notification
 
@@ -183,8 +185,10 @@ def email_owner(user, kind, crag, actor=None, count=1):
         # an unsaved Notification only to build the same text as in the app
         notice = Notification(user=user, kind=kind, crag=crag, actor=actor, count=count)
         subject = f"{Notification.Kind(kind).label}: \u201c{crag.name}\u201d"
+        quoted = ["", *(f"> {line}" for line in extra.splitlines())] if extra else []
         body = "\n".join([
             notice.text,
+            *quoted,
             "",
             f"Open the crag: {settings.SITE_URL}{notice.url}",
             "",
@@ -199,8 +203,38 @@ def email_owner(user, kind, crag, actor=None, count=1):
         logger.exception("owner mail failed crag=%s kind=%s", crag.pk, kind)
 
 
-def notify_owner(user, kind, crag, actor=None, count=1, email=True):
+def notify_owner(user, kind, crag, actor=None, count=1, email=True, extra=""):
     """In the app and, if the user wants it, by email. Never raises."""
     notify_in_app(user, kind, crag, actor, count)
     if email:
-        email_owner(user, kind, crag, actor, count)
+        email_owner(user, kind, crag, actor, count, extra)
+
+
+def review_participants(crag):
+    """The submitter, the moderator who reviewed it and everyone who wrote in its review.
+
+    Moderators who lost the moderator role are left out; the submitter always stays.
+    """
+    people = [crag.created_by, crag.reviewed_by]
+    people += [message.author for message in crag.review_messages.select_related("author")]
+    unique = {}
+    for user in people:
+        if user is None or user.pk in unique:
+            continue
+        if user.pk == crag.created_by_id or can_moderate(user):
+            unique[user.pk] = user
+    return list(unique.values())
+
+
+def notify_review_message(message):
+    """Tell everyone in the review about a new message, except its author. Never raises."""
+    from .models import Notification
+
+    try:
+        for user in review_participants(message.crag):
+            notify_owner(
+                user, Notification.Kind.REVIEW_MESSAGE, message.crag, message.author,
+                extra=message.text,
+            )
+    except Exception:
+        logger.exception("review message notification failed crag=%s", message.crag_id)

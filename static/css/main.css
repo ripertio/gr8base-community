@@ -177,3 +177,12 @@ a.nav-count:hover,a.nav-count:focus-visible{background:var(--pico-primary-hover)
 /* notification settings: checkboxes centred under their column */
 .notification-settings td{text-align:center}
 .notification-settings td input{margin:0}
+/* private review conversation on the crag page */
+.review-entries{margin:0 0 1rem;padding:0;list-style:none}
+.review-entries li{margin:0 0 .75rem;padding:.6rem .9rem;border-radius:var(--pico-border-radius);background:var(--pico-card-sectioning-background-color);list-style:none}
+.review-entries li p{margin:.25rem 0 0}
+.review-entries li.from-submitter{border-left:3px solid var(--pico-primary)}
+.review-entries li.review-event{background:none;border-left:3px solid var(--pico-muted-border-color)}
+.review-entries li.review-returned{border-left-color:#d97706}
+.review-entries li.review-published{border-left-color:#16a34a}
+.review-entries li.review-rejected{border-left-color:#dc2626}

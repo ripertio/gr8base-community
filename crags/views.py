@@ -18,8 +18,11 @@ from gr8base.offline import offline_cacheable
 from .forms import BulkPhotoForm, CragForm, coordinates_from_photos, process_image
 from .models import (
     Area, Crag, CragComment, CragRating, Feature, InvalidTransition, Notification, Photo,
+    ReviewMessage,
 )
-from .notifications import CHANNELS, notify_owner, types_for, wants
+from .notifications import (
+    CHANNELS, can_moderate, notify_owner, notify_review_message, types_for, wants,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -57,6 +60,27 @@ def with_next(url, target):
 def detail_url(crag, request):
     """The crag page, keeping the return target (used when an action failed)."""
     return with_next(reverse("crags:detail", args=[crag.pk]), return_target(request))
+
+
+def can_see_review(user, crag):
+    """The review thread is private: the crag's submitter and moderators."""
+    return user.is_authenticated and (crag.created_by_id == user.id or can_moderate(user))
+
+
+def review_context(user, crag):
+    """The review thread for the crag page, or None if the user may not see it."""
+    if not can_see_review(user, crag):
+        return None
+    entries = list(crag.review_messages.select_related("author"))
+    can_reply = crag.status in ReviewMessage.OPEN_STATUSES
+    if not entries and not can_reply:
+        return None
+    return {
+        "entries": entries,
+        "can_reply": can_reply,
+        "is_submitter": crag.created_by_id == user.id,
+        "max_length": ReviewMessage.MAX_LENGTH,
+    }
 
 
 def report_photo_coordinates(request, crag):
@@ -365,6 +389,7 @@ def crag_detail(request, pk):
             "can_rate": can_rate,
             "my_rating": my_rating,
             "comments": crag.comments.select_related("user"),
+            "review": review_context(request.user, crag),
             "can_comment": request.user.is_authenticated
             and crag.status == Crag.Status.PUBLISHED,
             "comment_max_length": CragComment.MAX_LENGTH,
@@ -459,6 +484,32 @@ def notification_list(request):
     # after fetching, so this page can still highlight what was new
     Notification.unread_for(request.user).update(read_at=timezone.now())
     return render(request, "crags/notifications.html", {"notifications": notifications})
+
+
+@login_required
+@require_POST
+def review_reply(request, pk):
+    """A message in the private review thread (submitter or moderator)."""
+    crag = get_object_or_404(Crag.objects.exclude(status=Crag.Status.REMOVED), pk=pk)
+    if not can_see_review(request.user, crag):
+        raise PermissionDenied
+    back = detail_url(crag, request) + "#review"
+    if crag.status not in ReviewMessage.OPEN_STATUSES:
+        messages.error(request, "This review is closed.")
+        return redirect(back)
+    text = request.POST.get("text", "").strip()
+    if not text:
+        messages.error(request, "Please write a message.")
+    elif len(text) > ReviewMessage.MAX_LENGTH:
+        messages.error(
+            request, f"Messages can be at most {ReviewMessage.MAX_LENGTH} characters."
+        )
+    else:
+        message = ReviewMessage.objects.create(crag=crag, author=request.user, text=text)
+        notify_review_message(message)
+        logger.info("review message crag=%s user=%s", crag.pk, request.user.pk)
+        messages.success(request, "Message sent.")
+    return redirect(back)
 
 
 @login_required
@@ -656,7 +707,9 @@ def crag_edit(request, pk):
                     )
                 )
                 if resubmit and Crag.Status.PENDING in crag.ALLOWED_TRANSITIONS[crag.status]:
-                    crag.transition(Crag.Status.PENDING, request.user)
+                    # optional note for the reviewers, shown in the review thread
+                    note = request.POST.get("review_note", "").strip()[:ReviewMessage.MAX_LENGTH]
+                    crag.transition(Crag.Status.PENDING, request.user, note)
                 if publish and crag.status != Crag.Status.PUBLISHED:
                     try:
                         crag.transition(Crag.Status.PUBLISHED, request.user)

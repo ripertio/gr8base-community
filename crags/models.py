@@ -272,7 +272,9 @@ class Crag(models.Model):
                 f"A reason of at least {self.MIN_REASON_LENGTH} characters is required."
             )
         now = timezone.now()
+        note = ""
         if to == self.Status.PENDING:
+            note, reason = reason, ""  # optional note for the reviewers when (re)submitting
             self.submitted_at = now
             self.reviewed_by = None
             self.reviewed_at = None
@@ -285,6 +287,14 @@ class Crag(models.Model):
             self.review_reason = reason if to == self.Status.NEEDS_CHANGES else ""
         self.status = to
         self.save()
+        entry = {
+            self.Status.NEEDS_CHANGES: (ReviewMessage.Kind.RETURNED, reason),
+            self.Status.PENDING: (ReviewMessage.Kind.SUBMITTED, note),
+            self.Status.PUBLISHED: (ReviewMessage.Kind.PUBLISHED, ""),
+            self.Status.REJECTED: (ReviewMessage.Kind.REJECTED, ""),
+        }.get(to)
+        if entry is not None:
+            ReviewMessage.objects.create(crag=self, author=actor, kind=entry[0], text=entry[1])
         if to in (self.Status.PUBLISHED, self.Status.NEEDS_CHANGES):
             from .notifications import notify_in_app, notify_submitter
 
@@ -466,6 +476,7 @@ class Notification(models.Model):
         PHOTO = "PHOTO", "New photos"
         PUBLISHED = "PUBLISHED", "Published"
         CHANGES_REQUESTED = "CHANGES_REQUESTED", "Changes requested"
+        REVIEW_MESSAGE = "REVIEW_MESSAGE", "New message in a review"
 
     # read notifications older than this are deleted when the list is opened
     KEEP_READ_DAYS = 180
@@ -510,9 +521,56 @@ class Notification(models.Model):
             return f"{who} added {photos} to {name}."
         if self.kind == self.Kind.PUBLISHED:
             return f"{name} was published. Thank you for contributing!"
+        if self.kind == self.Kind.REVIEW_MESSAGE:
+            return f"{who} wrote in the review of {name}."
         return f"Changes were requested for {name}. Please edit it and submit it again."
 
     @property
     def url(self):
         url = reverse("crags:detail", args=[self.crag_id])
-        return url + "#comments" if self.kind == self.Kind.COMMENT else url
+        if self.kind == self.Kind.COMMENT:
+            return url + "#comments"
+        if self.kind == self.Kind.REVIEW_MESSAGE:
+            return url + "#review"
+        return url
+
+
+class ReviewMessage(models.Model):
+    """The private review conversation of a crag: its submitter and the moderators.
+
+    MESSAGE is something someone wrote; the other kinds are written by
+    Crag.transition() so the thread also tells the story of the review
+    (RETURNED carries the reason, SUBMITTED an optional note). Only the
+    submitter and moderators see it. The author link is cleared when the
+    author's account is deleted.
+    """
+
+    class Kind(models.TextChoices):
+        MESSAGE = "MESSAGE", "Message"
+        SUBMITTED = "SUBMITTED", "Submitted for review"
+        RETURNED = "RETURNED", "Changes requested"
+        PUBLISHED = "PUBLISHED", "Published"
+        REJECTED = "REJECTED", "Rejected"
+
+    MAX_LENGTH = 2000
+    # replies are possible while the review is open
+    OPEN_STATUSES = (Crag.Status.NEEDS_CHANGES, Crag.Status.PENDING)
+
+    crag = models.ForeignKey(Crag, on_delete=models.CASCADE, related_name="review_messages")
+    author = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name="+",
+    )
+    kind = models.CharField(max_length=20, choices=Kind.choices, default=Kind.MESSAGE)
+    text = models.TextField(max_length=MAX_LENGTH, blank=True)
+    created_at = models.DateTimeField(default=timezone.now)
+
+    class Meta:
+        ordering = ["created_at", "pk"]
+
+    def __str__(self):
+        return f"{self.get_kind_display()} on {self.crag}"
+
+    @property
+    def author_name(self):
+        return self.author.username if self.author else "Someone"

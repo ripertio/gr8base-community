@@ -26,7 +26,7 @@ from .forms import (
 )
 from .models import (
     THUMBNAIL_EDGE, Area, Crag, InvalidTransition, CragComment, CragRating, Feature,
-    Guidebook, Notification, Photo,
+    Guidebook, Notification, Photo, ReviewMessage,
 )
 
 
@@ -2293,7 +2293,8 @@ class ModerationReturnTests(CragTestBase):
         response = self.client.get(self.detail(self.pending, self.QUEUE))
         escaped = self.QUEUE.replace("&", "&amp;")
         self.assertContains(response, f'<a href="{escaped}">← Back</a>', html=True)
-        self.assertContains(response, f'name="next" value="{escaped}"', count=3)  # publish, reject, return
+        # publish, reject, return and the review reply
+        self.assertContains(response, f'name="next" value="{escaped}"', count=4)
         edit = reverse("crags:edit", args=[self.pending.pk])
         self.assertContains(response, f"{edit}?{urlencode({'next': self.QUEUE})}")
 
@@ -2981,7 +2982,7 @@ class NotificationSettingsTests(CragTestBase):
         expected = {
             "COMMENT": (True, False), "RATING": (True, False), "PHOTO": (True, False),
             "PUBLISHED": (True, True), "CHANGES_REQUESTED": (True, True),
-            "REVIEW_WAITING": (True, True),
+            "REVIEW_MESSAGE": (True, True), "REVIEW_WAITING": (True, True),
         }
         for key, (in_app, email) in expected.items():
             self.assertEqual(wants(self.alice, key, "in_app"), in_app, key)
@@ -2998,7 +2999,9 @@ class NotificationSettingsTests(CragTestBase):
         self.client.force_login(self.alice)
         response = self.client.get(reverse("notification_settings"))
         keys = [row["key"] for row in response.context["rows"]]
-        self.assertEqual(keys, ["COMMENT", "RATING", "PHOTO", "PUBLISHED", "CHANGES_REQUESTED"])
+        self.assertEqual(
+            keys, ["COMMENT", "RATING", "PHOTO", "PUBLISHED", "CHANGES_REQUESTED", "REVIEW_MESSAGE"]
+        )
         self.assertContains(response, 'name="COMMENT-in_app" aria-label="Someone comments on one of my crags: in the app" checked')
         self.assertContains(response, 'name="COMMENT-email" aria-label="Someone comments on one of my crags: by email">')
         self.assertContains(response, "<th scope=\"col\">By email</th>", html=False)
@@ -3120,3 +3123,227 @@ class NotificationSettingsTests(CragTestBase):
 
     def test_privacy_page_mentions_the_settings(self):
         self.assertContains(self.client.get("/docs/privacy/"), "notification settings")
+
+
+class ReviewThreadTests(CragTestBase):
+    """Private review conversation between the submitter and moderators."""
+
+    def setUp(self):
+        self.manager = User.objects.create_user("mgr", "mgr@example.com", "pw", is_staff=True)
+        self.manager.groups.add(Group.objects.get(name="Crag Managers"))
+
+    def send_back(self, crag=None, reason="Please add the approach details."):
+        crag = crag or self.pending
+        crag.transition(Crag.Status.NEEDS_CHANGES, self.manager, reason)
+        mail.outbox.clear()
+        return crag
+
+    def reply(self, user, text="Which approach do you mean?", crag=None):
+        self.client.force_login(user)
+        return self.client.post(
+            reverse("crags:review_reply", args=[(crag or self.pending).pk]), {"text": text}
+        )
+
+    def entries(self, crag=None):
+        return list((crag or self.pending).review_messages.values_list("kind", "author__username", "text"))
+
+    # --- the story of the review ---------------------------------------------------
+
+    def test_transitions_write_review_entries(self):
+        crag = self.draft
+        crag.transition(Crag.Status.PENDING, self.alice, "First try")
+        crag.transition(Crag.Status.NEEDS_CHANGES, self.manager, "Please add the approach details.")
+        crag.transition(Crag.Status.PENDING, self.alice)
+        crag.transition(Crag.Status.PUBLISHED, self.manager)
+        self.assertEqual(self.entries(crag), [
+            ("SUBMITTED", "alice", "First try"),
+            ("RETURNED", "mgr", "Please add the approach details."),
+            ("SUBMITTED", "alice", ""),
+            ("PUBLISHED", "mgr", ""),
+        ])
+
+    def test_rejection_and_removal(self):
+        self.pending.transition(Crag.Status.REJECTED, self.manager)
+        self.assertEqual(self.entries()[-1][:2], ("REJECTED", "mgr"))
+        before = len(self.entries(self.draft))
+        self.draft.transition(Crag.Status.REMOVED, self.alice)
+        self.assertEqual(len(self.entries(self.draft)), before)  # not a review step
+
+    def test_resubmit_note_from_the_edit_form(self):
+        self.send_back()
+        self.client.force_login(self.alice)
+        self.client.post(
+            reverse("crags:edit", args=[self.pending.pk]),
+            form_data(self.area, name="Waiting", action="submit", review_note="Added the approach."),
+        )
+        self.pending.refresh_from_db()
+        self.assertEqual(self.pending.status, Crag.Status.PENDING)
+        self.assertEqual(self.entries()[-1], ("SUBMITTED", "alice", "Added the approach."))
+
+    def test_edit_form_offers_note_only_when_changes_were_requested(self):
+        self.client.force_login(self.alice)
+        edit = reverse("crags:edit", args=[self.pending.pk])
+        self.assertNotContains(self.client.get(edit), 'name="review_note"')
+        self.send_back()
+        self.assertContains(self.client.get(edit), 'name="review_note"')
+
+    # --- replying -------------------------------------------------------------------
+
+    def test_submitter_replies_and_moderator_answers(self):
+        self.send_back()
+        self.reply(self.alice, "Which approach do you mean?")
+        self.reply(self.manager, "The one from the parking.")
+        self.assertEqual(self.entries()[-2:], [
+            ("MESSAGE", "alice", "Which approach do you mean?"),
+            ("MESSAGE", "mgr", "The one from the parking."),
+        ])
+
+    def test_others_cannot_reply_or_see_the_thread(self):
+        self.send_back()
+        self.assertEqual(self.reply(self.bob).status_code, 403)
+        # resubmitted: the crag is public again (pending), its review is not
+        self.pending.transition(Crag.Status.PENDING, self.alice, "Added it.")
+        self.client.force_login(self.bob)
+        response = self.client.get(reverse("crags:detail", args=[self.pending.pk]))
+        self.assertNotContains(response, 'id="review"')
+        self.assertNotContains(response, "Please add the approach details.")
+        self.client.logout()
+        self.assertNotContains(
+            self.client.get(reverse("crags:detail", args=[self.pending.pk])), 'id="review"'
+        )
+
+    def test_reply_needs_login(self):
+        response = self.client.post(reverse("crags:review_reply", args=[self.pending.pk]), {"text": "x"})
+        self.assertEqual(response.status_code, 302)
+        self.assertFalse(ReviewMessage.objects.filter(kind="MESSAGE").exists())
+
+    def test_closed_after_publishing(self):
+        self.send_back()
+        self.pending.transition(Crag.Status.PENDING, self.alice)
+        self.pending.transition(Crag.Status.PUBLISHED, self.manager)
+        response = self.reply(self.alice)
+        self.assertRedirects(response, reverse("crags:detail", args=[self.pending.pk]) + "#review",
+                             fetch_redirect_response=False)
+        self.assertFalse(ReviewMessage.objects.filter(kind="MESSAGE").exists())
+        page = self.client.get(reverse("crags:detail", args=[self.pending.pk]))
+        self.assertContains(page, "This review is closed.")
+        self.assertNotContains(page, 'id="review-text"')
+
+    def test_empty_and_too_long_messages_are_refused(self):
+        self.send_back()
+        self.reply(self.alice, "   ")
+        self.reply(self.alice, "x" * (ReviewMessage.MAX_LENGTH + 1))
+        self.assertFalse(ReviewMessage.objects.filter(kind="MESSAGE").exists())
+
+    def test_thread_on_the_crag_page(self):
+        self.send_back()
+        self.reply(self.alice, "Which approach do you mean?")
+        response = self.client.get(reverse("crags:detail", args=[self.pending.pk]))
+        self.assertContains(response, 'id="review"')
+        self.assertContains(response, "Please add the approach details.")
+        self.assertContains(response, "Which approach do you mean?")
+        self.assertContains(response, "Only you and the moderators see this conversation.")
+        self.assertContains(response, "Reply to the moderators")
+        self.client.force_login(self.manager)
+        response = self.client.get(reverse("crags:detail", args=[self.pending.pk]))
+        self.assertContains(response, "Reply to the submitter")
+
+    def test_message_text_is_escaped(self):
+        self.send_back()
+        self.reply(self.alice, "<script>alert(1)</script>")
+        response = self.client.get(reverse("crags:detail", args=[self.pending.pk]))
+        self.assertNotContains(response, "<script>alert(1)</script>")
+        self.assertContains(response, "&lt;script&gt;")
+
+    def test_deleted_author_shows_as_someone(self):
+        self.send_back()
+        self.reply(self.alice)
+        self.manager.delete()
+        self.client.force_login(self.alice)
+        response = self.client.get(reverse("crags:detail", args=[self.pending.pk]))
+        self.assertContains(response, "<strong>Changes requested</strong> by Someone")
+
+    # --- notifications ----------------------------------------------------------------
+
+    def test_submitter_reply_notifies_the_reviewing_moderator(self):
+        self.send_back()
+        self.reply(self.alice, "Which approach\ndo you mean?")
+        note = Notification.objects.get(user=self.manager, kind=Notification.Kind.REVIEW_MESSAGE)
+        self.assertEqual(note.text, "alice wrote in the review of “Waiting”.")
+        self.assertTrue(note.url.endswith("#review"))
+        [message] = mail.outbox
+        self.assertEqual(message.to, ["mgr@example.com"])
+        self.assertIn("> Which approach\n> do you mean?", message.body)
+        self.assertFalse(Notification.objects.filter(user=self.alice, kind="REVIEW_MESSAGE").exists())
+
+    def test_moderator_reply_notifies_the_submitter(self):
+        self.send_back()
+        self.reply(self.manager, "Any questions?")
+        self.assertTrue(Notification.objects.filter(user=self.alice, kind="REVIEW_MESSAGE").exists())
+        self.assertEqual([m.to for m in mail.outbox], [["alice@example.com"]])
+
+    def test_other_moderators_join_by_writing(self):
+        other = User.objects.create_user("mgr2", "mgr2@example.com", "pw", is_staff=True)
+        other.groups.add(Group.objects.get(name="Crag Managers"))
+        self.send_back()
+        self.reply(other, "I can help too.")
+        mail.outbox.clear()
+        self.reply(self.alice, "Thanks!")
+        self.assertEqual(sorted(m.to[0] for m in mail.outbox), ["mgr2@example.com", "mgr@example.com"])
+
+    def test_review_message_notifications_follow_the_settings(self):
+        self.manager.notification_settings = {"REVIEW_MESSAGE": {"in_app": True, "email": False}}
+        self.manager.save()
+        self.send_back()
+        self.reply(self.alice)
+        self.assertEqual(mail.outbox, [])
+        self.assertTrue(Notification.objects.filter(user=self.manager, kind="REVIEW_MESSAGE").exists())
+
+    # --- moderation queue -------------------------------------------------------------
+
+    def test_queue_lists_crags_waiting_for_an_answer(self):
+        self.send_back()
+        self.client.force_login(self.manager)
+        queue = reverse("moderation:queue")
+        self.assertNotContains(self.client.get(queue), "Waiting for your answer")
+        self.reply(self.alice)
+        self.client.force_login(self.manager)
+        response = self.client.get(queue)  # default filter: Pending only
+        self.assertContains(response, "Waiting for your answer")
+        self.assertContains(response, f'{reverse("crags:detail", args=[self.pending.pk])}?next=')
+        # answered: gone again
+        self.reply(self.manager, "The one from the parking.")
+        self.client.force_login(self.manager)
+        self.assertNotContains(self.client.get(queue), "Waiting for your answer")
+
+    def test_reply_chip_in_the_list(self):
+        self.send_back()
+        self.reply(self.alice)
+        self.client.force_login(self.manager)
+        response = self.client.get(reverse("moderation:queue"), {"status": "NEEDS_CHANGES"})
+        self.assertContains(response, "Reply from submitter")
+
+    def test_moderation_counter_includes_waiting_replies(self):
+        Crag.objects.filter(status=Crag.Status.PENDING).update(status=Crag.Status.DRAFT)
+        crag = Crag.objects.create(name="Back", area=self.area, created_by=self.alice,
+                                   status=Crag.Status.PENDING)
+        self.send_back(crag)
+        self.client.force_login(self.manager)
+        self.assertEqual(self.client.get(reverse("crags:list")).context["open_moderation_count"], 0)
+        self.reply(self.alice, crag=crag)
+        self.client.force_login(self.manager)
+        self.assertEqual(self.client.get(reverse("crags:list")).context["open_moderation_count"], 1)
+
+    def test_existing_reason_moves_into_the_thread(self):
+        from importlib import import_module
+        migration = import_module("crags.migrations.0024_review_message_from_reason")
+        Crag.objects.filter(pk=self.pending.pk).update(
+            status=Crag.Status.NEEDS_CHANGES, review_reason="Old reason", reviewed_by=self.manager
+        )
+        from django.apps import apps
+        migration.reasons_to_messages(apps, None)
+        migration.reasons_to_messages(apps, None)  # runs once per crag only
+        self.assertEqual(self.entries(), [("RETURNED", "mgr", "Old reason")])
+
+    def test_privacy_page_describes_review_conversations(self):
+        self.assertContains(self.client.get("/docs/privacy/"), "Review conversations")

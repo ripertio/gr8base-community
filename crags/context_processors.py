@@ -7,6 +7,7 @@ def nav_counts(request):
     unread_notification_count: next to the user's name, links to /notifications/.
     open_moderation_count: crags waiting for review, next to "Moderation" (only
     for those who see that link: staff and publishers).
+    nav_total_count: both together, on the burger icon of the collapsed menu.
     """
     user = getattr(request, "user", None)
     if user is None or not user.is_authenticated:
@@ -16,4 +17,5 @@ def nav_counts(request):
         counts["open_moderation_count"] = Crag.objects.filter(
             status=Crag.Status.PENDING
         ).count()
+    counts["nav_total_count"] = sum(counts.values())
     return counts

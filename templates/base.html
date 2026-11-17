@@ -50,8 +50,8 @@
                 </li>
             </ul>
 
-            <input type="checkbox" id="nav-toggle" class="nav-toggle" aria-label="Open or close menu">
-            <label for="nav-toggle" class="nav-burger" aria-hidden="true">☰</label>
+            <input type="checkbox" id="nav-toggle" class="nav-toggle" aria-label="Open or close menu{% if nav_total_count %} ({{ nav_total_count }} new){% endif %}">
+            <label for="nav-toggle" class="nav-burger" aria-hidden="true">☰{% if nav_total_count %}<span class="nav-count">{{ nav_total_count }}</span>{% endif %}</label>
 
             <ul class="nav-links">
                 <li><a href="{% url 'crags:list' %}">Crags</a></li>

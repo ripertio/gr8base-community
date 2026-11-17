@@ -2897,6 +2897,28 @@ class InAppNotificationTests(CragTestBase):
         self.assertNotIn("open_moderation_count", response.context)
         self.assertNotContains(response, "Moderation")
 
+    def test_burger_shows_total_of_both_counters(self):
+        self.comment(self.bob)  # 1 unread for alice
+        alice_manager = self.alice
+        alice_manager.groups.add(Group.objects.get(name="Crag Managers"))  # 1 pending crag
+        self.client.force_login(alice_manager)
+        response = self.client.get(reverse("crags:list"))
+        self.assertEqual(response.context["nav_total_count"], 2)
+        self.assertContains(response, '☰<span class="nav-count">2</span>')
+        self.assertContains(response, 'aria-label="Open or close menu (2 new)"')
+
+    def test_burger_shows_unread_only_for_regular_users(self):
+        self.comment(self.bob)
+        self.client.force_login(self.alice)
+        response = self.client.get(reverse("crags:list"))
+        self.assertContains(response, '☰<span class="nav-count">1</span>')
+
+    def test_no_burger_count_when_nothing_is_new(self):
+        self.client.force_login(self.bob)
+        response = self.client.get(reverse("crags:list"))
+        self.assertContains(response, 'aria-label="Open or close menu">')
+        self.assertNotContains(response, "nav-count")
+
     def test_privacy_page_describes_notifications(self):
         response = self.client.get("/docs/privacy/")
         self.assertContains(response, "Notifications that are read are deleted after 180 days")

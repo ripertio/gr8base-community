@@ -297,6 +297,8 @@ class Crag(models.Model):
         }.get(to)
         if entry is not None:
             ReviewMessage.objects.create(crag=self, author=actor, kind=entry[0], text=entry[1])
+        if to == self.Status.REMOVED:
+            self.close_change_requests(actor)
         if to in (self.Status.PUBLISHED, self.Status.NEEDS_CHANGES):
             from .notifications import notify_in_app, notify_submitter
 
@@ -313,6 +315,25 @@ class Crag(models.Model):
             from .notifications import notify_moderators
 
             notify_moderators(self, actor)
+
+    def close_change_requests(self, actor):
+        """On removal: decline open change requests and delete all suggested photos.
+
+        Suggested photos are private and only kept while a request is open; a
+        removed crag cannot take them any more (restoring it does not reopen them).
+        """
+        now = timezone.now()
+        for change_request in self.change_requests.filter(status=ChangeRequest.Status.OPEN):
+            change_request.status = ChangeRequest.Status.DECLINED
+            change_request.closed_at = now
+            change_request.closed_by = actor
+            change_request.save()
+            ChangeRequestMessage.objects.create(
+                change_request=change_request, author=actor,
+                kind=ChangeRequestMessage.Kind.DECLINED, text="The crag was removed.",
+            )
+        # files go with the rows (post_delete signal)
+        ChangeRequestPhoto.objects.filter(change_request__crag=self).delete()
 
     def clean(self):
         super().clean()
@@ -624,6 +645,7 @@ class ChangeRequest(models.Model):
         OPEN = "OPEN", "Open"
         DONE = "DONE", "Done"
         DECLINED = "DECLINED", "Declined"
+        WITHDRAWN = "WITHDRAWN", "Withdrawn"
 
     MAX_LENGTH = 2000
 
@@ -664,6 +686,7 @@ class ChangeRequestMessage(models.Model):
         MESSAGE = "MESSAGE", "Message"
         DONE = "DONE", "Done"
         DECLINED = "DECLINED", "Declined"
+        WITHDRAWN = "WITHDRAWN", "Withdrawn"
 
     change_request = models.ForeignKey(
         ChangeRequest, on_delete=models.CASCADE, related_name="messages"

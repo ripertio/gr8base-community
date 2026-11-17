@@ -156,6 +156,7 @@ def change_request_detail(request, pk):
             "photos": list(change_request.photos.all()),
             "can_reply": change_request.is_open,
             "can_handle": handle,
+            "can_withdraw": change_request.is_open and change_request.requester_id == request.user.pk,
             "categories": Photo.Category.choices,
             "photo_count": photo_count,
             "max_photos": max_photos_per_crag(),
@@ -265,6 +266,32 @@ def close(request, pk):
         messages.success(request, f"Marked as done.{added}")
     else:
         messages.success(request, "Change request declined.")
+    return redirect(back)
+
+
+@login_required
+@require_POST
+def withdraw(request, pk):
+    """The requester takes their suggestion back; its photos are deleted."""
+    change_request = get_visible(request, pk)
+    if change_request.requester_id != request.user.pk:
+        raise PermissionDenied
+    back = detail_url(change_request)
+    if not change_request.is_open:
+        messages.error(request, "This change request is already closed.")
+        return redirect(back)
+    with transaction.atomic():
+        change_request.status = ChangeRequest.Status.WITHDRAWN
+        change_request.closed_at = timezone.now()
+        change_request.closed_by = request.user
+        change_request.save()
+        ChangeRequestMessage.objects.create(
+            change_request=change_request, author=request.user,
+            kind=ChangeRequestMessage.Kind.WITHDRAWN,
+        )
+        change_request.photos.all().delete()  # files go with the rows
+    logger.info("change request withdrawn id=%s user=%s", change_request.pk, request.user.pk)
+    messages.success(request, "Your suggestion was withdrawn.")
     return redirect(back)
 
 

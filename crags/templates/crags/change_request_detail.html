@@ -22,7 +22,7 @@
                 <p>{{ entry.text|linebreaksbr }}</p>
             </li>
         {% else %}
-            <li class="review-event {% if entry.kind == 'DONE' %}review-published{% else %}review-rejected{% endif %}">
+            <li class="review-event{% if entry.kind == 'DONE' %} review-published{% elif entry.kind == 'DECLINED' %} review-rejected{% endif %}">
                 <small><strong>{{ entry.get_kind_display }}</strong> by {{ entry.author_name }} · <time datetime="{{ entry.created_at|date:'c' }}">{{ entry.created_at|date:"j M Y, H:i" }}</time></small>
                 {% if entry.text %}<p>{{ entry.text|linebreaksbr }}</p>{% endif %}
             </li>
@@ -77,6 +77,15 @@
             <button type="submit" name="action" value="declined" class="outline secondary"
                     onclick="return confirm('Decline this change request? Suggested photos will be deleted.')">Decline</button>
         </div>
+    </form>
+{% endif %}
+
+{% if can_withdraw %}
+    {# the requester changed their mind: closes it and deletes the suggested photos #}
+    <form method="post" action="{% url 'crags:change_request_withdraw' change_request.pk %}"
+          onsubmit="return confirm('Withdraw your suggestion? Photos you added will be deleted.')">
+        {% csrf_token %}
+        <button type="submit" class="outline secondary">Withdraw suggestion</button>
     </form>
 {% endif %}
 

@@ -19,6 +19,7 @@ urlpatterns = [
     path("changes/<int:pk>/", change_requests.change_request_detail, name="change_request"),
     path("changes/<int:pk>/reply/", change_requests.reply, name="change_request_reply"),
     path("changes/<int:pk>/close/", change_requests.close, name="change_request_close"),
+    path("changes/<int:pk>/withdraw/", change_requests.withdraw, name="change_request_withdraw"),
     path("<int:pk>/delete/", views.crag_delete, name="delete"),
     path("<int:pk>/rate/", views.crag_rate, name="rate"),
     path("<int:pk>/comments/add/", views.comment_add, name="comment_add"),

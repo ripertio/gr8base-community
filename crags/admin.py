@@ -13,7 +13,7 @@ from django.utils.html import format_html
 
 from .models import (
     Area, ChangeRequest, ChangeRequestMessage, ChangeRequestPhoto, Crag, InvalidTransition,
-    CragComment, CragRating, Feature, Guidebook, Photo,
+    CragComment, CragRating, Feature, Guidebook, Notification, Photo, ReviewMessage,
 )
 
 
@@ -322,3 +322,44 @@ class ChangeRequestAdmin(SuperuserCleanupMixin, admin.ModelAdmin):
         # files go with the rows (post_delete signal)
         deleted, _ = ChangeRequestPhoto.objects.filter(change_request__in=queryset).delete()
         self.message_user(request, f"Deleted {deleted} suggested photo(s).", messages.SUCCESS)
+
+
+@admin.register(ReviewMessage)
+class ReviewMessageAdmin(SuperuserCleanupMixin, admin.ModelAdmin):
+    """The private review conversations (moderators' "Needs changes" and the replies).
+
+    Superusers clean up here: "Delete selected" removes single entries; "Delete
+    the whole review" removes every entry of the selected crags' reviews and the
+    notifications pointing to them.
+    """
+
+    list_display = ("crag", "kind", "author", "short_text", "created_at")
+    list_filter = ("kind", "crag__status")
+    search_fields = ("crag__name", "author__username", "text")
+    date_hierarchy = "created_at"
+    fields = ("crag", "kind", "author", "text", "created_at")
+    readonly_fields = fields
+    actions = ["delete_whole_reviews"]
+
+    def get_queryset(self, request):
+        return super().get_queryset(request).select_related("crag", "author")
+
+    @admin.display(description="Text")
+    def short_text(self, obj):
+        return obj.text[:80] + ("…" if len(obj.text) > 80 else "")
+
+    @admin.action(description="Delete the whole review of the selected crags")
+    def delete_whole_reviews(self, request, queryset):
+        if not request.user.is_superuser:
+            raise PermissionDenied
+        crag_ids = list(queryset.values_list("crag_id", flat=True).distinct())
+        deleted, _ = ReviewMessage.objects.filter(crag_id__in=crag_ids).delete()
+        Notification.objects.filter(
+            kind=Notification.Kind.REVIEW_MESSAGE, crag_id__in=crag_ids
+        ).delete()
+        self.message_user(
+            request,
+            f"Deleted {deleted} review entr{'y' if deleted == 1 else 'ies'} "
+            f"of {len(crag_ids)} crag{'' if len(crag_ids) == 1 else 's'}.",
+            messages.SUCCESS,
+        )

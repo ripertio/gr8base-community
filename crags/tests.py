@@ -3363,6 +3363,64 @@ class ReviewThreadTests(CragTestBase):
         migration.reasons_to_messages(apps, None)  # runs once per crag only
         self.assertEqual(self.entries(), [("RETURNED", "mgr", "Old reason")])
 
+    # --- Django admin: superusers clean up ---------------------------------------------
+
+    def superuser(self):
+        return User.objects.create_superuser("root", "root@example.com", "pw")
+
+    def test_admin_lists_and_shows_review_entries_to_superusers(self):
+        self.send_back()
+        self.reply(self.alice, "Which approach do you mean?")
+        self.client.force_login(self.superuser())
+        changelist = self.client.get(reverse("admin:crags_reviewmessage_changelist"))
+        self.assertContains(changelist, "Which approach do you mean?")
+        self.assertContains(changelist, "Please add the approach details.")
+        entry = ReviewMessage.objects.get(kind="MESSAGE")
+        detail = self.client.get(reverse("admin:crags_reviewmessage_change", args=[entry.pk]))
+        self.assertContains(detail, "Which approach do you mean?")
+        self.assertNotContains(detail, 'name="_save"')  # read-only
+
+    def test_review_admin_hidden_from_other_staff_and_moderators(self):
+        url = reverse("admin:crags_reviewmessage_changelist")
+        for user in (self.staff, self.manager):
+            self.client.force_login(user)
+            self.assertEqual(self.client.get(url).status_code, 403, user.username)
+            self.assertNotContains(self.client.get(reverse("admin:index")), "Review messages")
+
+    def test_superuser_deletes_single_entries(self):
+        self.send_back()
+        self.reply(self.alice, "Which approach do you mean?")
+        entry = ReviewMessage.objects.get(kind="MESSAGE")
+        self.client.force_login(self.superuser())
+        self.client.post(
+            reverse("admin:crags_reviewmessage_changelist"),
+            {"action": "delete_selected", "_selected_action": [entry.pk], "post": "yes"},
+        )
+        self.assertEqual(self.entries(), [("RETURNED", "mgr", "Please add the approach details.")])
+
+    def test_superuser_deletes_whole_reviews_and_their_notifications(self):
+        self.send_back()
+        self.reply(self.alice, "Which approach do you mean?")
+        other = self.send_back(Crag.objects.create(
+            name="Other", area=self.area, created_by=self.alice, status=Crag.Status.PENDING,
+        ))
+        self.assertTrue(Notification.objects.filter(kind="REVIEW_MESSAGE", crag=self.pending).exists())
+        one_entry = ReviewMessage.objects.filter(crag=self.pending).first()
+        self.client.force_login(self.superuser())
+        response = self.client.post(
+            reverse("admin:crags_reviewmessage_changelist"),
+            {"action": "delete_whole_reviews", "_selected_action": [one_entry.pk]},
+            follow=True,
+        )
+        self.assertContains(response, "Deleted 2 review entries of 1 crag.")
+        self.assertFalse(ReviewMessage.objects.filter(crag=self.pending).exists())
+        self.assertFalse(Notification.objects.filter(kind="REVIEW_MESSAGE", crag=self.pending).exists())
+        self.assertTrue(ReviewMessage.objects.filter(crag=other).exists())  # other crags untouched
+        # the crag page simply has no review any more
+        self.client.force_login(self.alice)
+        page = self.client.get(reverse("crags:detail", args=[self.pending.pk]))
+        self.assertNotContains(page, "Please add the approach details.")
+
     def test_privacy_page_describes_review_conversations(self):
         self.assertContains(self.client.get("/docs/privacy/"), "Review conversations")
 

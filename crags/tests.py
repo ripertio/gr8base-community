@@ -16,6 +16,7 @@ from django.test import SimpleTestCase, TestCase, override_settings
 from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
 from django.utils import timezone
+from django.utils.http import urlencode
 from PIL import ExifTags, Image
 from PIL.TiffImagePlugin import IFDRational
 
@@ -114,14 +115,18 @@ class PublicVisibilityTests(CragTestBase):
         self.assertEqual(resp.status_code, 200)
 
     def test_list_ignores_bad_filter_input(self):
-        resp = self.client.get(reverse("crags:list"), {"rating": "abc", "area": "xyz"})
+        resp = self.client.get(
+            reverse("crags:list"),
+            {"rating_babies": "abc", "rating_ages_2_4": "9", "area": "xyz"},
+        )
         self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.context["active_filters"], 0)
 
-    def test_rating_filter_matches_any_age_group(self):
+    def test_rating_filter_per_age_group(self):
         self.pending.rating_ages_2_4 = 4
         self.pending.save()
 
-        response = self.client.get(reverse("crags:list"), {"rating": "4"})
+        response = self.client.get(reverse("crags:list"), {"rating_ages_2_4": "4"})
 
         self.assertContains(response, "Waiting")
         self.assertNotContains(response, "Public")
@@ -140,7 +145,7 @@ class PublicVisibilityTests(CragTestBase):
         self.assertEqual(resp.status_code, 200)
         self.assertContains(resp, "Public")
         self.assertNotContains(resp, "Other crag")
-        self.assertEqual(resp.context["selected_area"], self.area.name)
+        self.assertEqual(resp.context["selected_areas"], [self.area.name])
         self.assertContains(resp, f'value="{self.area.name}"')
 
     def test_list_filters_by_age_orientation_and_approach(self):
@@ -150,7 +155,7 @@ class PublicVisibilityTests(CragTestBase):
         self.published.save()
         url = reverse("crags:list")
 
-        resp = self.client.get(url, {"age": "babies", "rating": "4"})
+        resp = self.client.get(url, {"rating_babies": "4"})
         self.assertContains(resp, "Public")
         self.assertNotContains(resp, "Waiting")
 
@@ -2261,3 +2266,398 @@ class PrivacyPageGpsTests(TestCase):
     def test_privacy_page_describes_photo_location_prefill(self):
         response = self.client.get("/docs/privacy/")
         self.assertContains(response, "used to fill in the crag coordinates")
+
+
+class ModerationReturnTests(CragTestBase):
+    """Actions started from the moderation queue go back to the queue (with its filter)."""
+
+    QUEUE = "/moderation/?status=PENDING&status=NEEDS_CHANGES"
+
+    def setUp(self):
+        self.manager = User.objects.create_user("mgr", "m@example.com", "pw", is_staff=True)
+        self.manager.groups.add(Group.objects.get(name="Crag Managers"))
+        self.client.force_login(self.manager)
+
+    def detail(self, crag, next_url=None):
+        url = reverse("crags:detail", args=[crag.pk])
+        return f"{url}?{urlencode({'next': next_url})}" if next_url else url
+
+    def test_queue_links_to_crag_with_queue_as_return_target(self):
+        response = self.client.get(self.QUEUE)
+        self.assertContains(
+            response,
+            f'href="{self.detail(self.pending, self.QUEUE)}"'.replace("&", "&amp;"),
+        )
+
+    def test_detail_carries_return_target_into_actions(self):
+        response = self.client.get(self.detail(self.pending, self.QUEUE))
+        escaped = self.QUEUE.replace("&", "&amp;")
+        self.assertContains(response, f'<a href="{escaped}">← Back</a>', html=True)
+        self.assertContains(response, f'name="next" value="{escaped}"', count=3)  # publish, reject, return
+        edit = reverse("crags:edit", args=[self.pending.pk])
+        self.assertContains(response, f"{edit}?{urlencode({'next': self.QUEUE})}")
+
+    def test_detail_without_return_target_has_no_back_link(self):
+        response = self.client.get(self.detail(self.pending))
+        self.assertNotContains(response, "← Back")
+        self.assertNotContains(response, 'name="next" value="/moderation')
+        self.assertContains(response, f'href="{reverse("crags:edit", args=[self.pending.pk])}"')
+
+    def test_publish_returns_to_queue(self):
+        response = self.client.post(
+            reverse("crags:publish", args=[self.pending.pk]), {"next": self.QUEUE}
+        )
+        self.assertRedirects(response, self.QUEUE)
+        self.pending.refresh_from_db()
+        self.assertEqual(self.pending.status, Crag.Status.PUBLISHED)
+
+    def test_reject_returns_to_queue(self):
+        response = self.client.post(
+            reverse("crags:reject", args=[self.pending.pk]), {"next": self.QUEUE}
+        )
+        self.assertRedirects(response, self.QUEUE)
+
+    def test_return_returns_to_queue(self):
+        response = self.client.post(
+            reverse("crags:return", args=[self.pending.pk]),
+            {"next": self.QUEUE, "reason": "Please add the approach details."},
+        )
+        self.assertRedirects(response, self.QUEUE)
+
+    def test_failed_return_stays_on_crag_and_keeps_target(self):
+        response = self.client.post(
+            reverse("crags:return", args=[self.pending.pk]),
+            {"next": self.QUEUE, "reason": "short"},
+        )
+        self.assertRedirects(response, self.detail(self.pending, self.QUEUE))
+
+    def test_failed_publish_stays_on_crag_and_keeps_target(self):
+        rejected = Crag.objects.create(
+            name="Gone", area=self.area, created_by=self.alice, status=Crag.Status.REJECTED,
+        )
+        response = self.client.post(
+            reverse("crags:publish", args=[rejected.pk]), {"next": self.QUEUE}
+        )
+        self.assertRedirects(response, self.detail(rejected, self.QUEUE))
+
+    def test_edit_returns_to_queue(self):
+        edit = reverse("crags:edit", args=[self.pending.pk])
+        page = self.client.get(f"{edit}?{urlencode({'next': self.QUEUE})}")
+        self.assertContains(
+            page, f'name="next" value="{self.QUEUE}"'.replace("&", "&amp;")
+        )
+        response = self.client.post(
+            edit, form_data(self.area, name="Waiting", next=self.QUEUE)
+        )
+        self.assertRedirects(response, self.QUEUE)
+
+    def test_edit_with_errors_keeps_target(self):
+        edit = reverse("crags:edit", args=[self.pending.pk])
+        response = self.client.post(
+            edit, form_data(self.area, name="", next=self.QUEUE)
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(
+            response, f'name="next" value="{self.QUEUE}"'.replace("&", "&amp;")
+        )
+
+    def test_remove_returns_to_queue(self):
+        superuser = User.objects.create_superuser("root", "r@example.com", "pw")
+        self.client.force_login(superuser)
+        response = self.client.post(
+            reverse("crags:delete", args=[self.pending.pk]), {"next": self.QUEUE}
+        )
+        self.assertRedirects(response, self.QUEUE)
+
+    def test_photo_delete_on_edit_page_keeps_target(self):
+        with tempfile.TemporaryDirectory() as media_root, override_settings(MEDIA_ROOT=media_root):
+            photo = Photo.objects.create(
+                crag=self.pending, image=image_upload("p.jpg"),
+                category=Photo.Category.CRAG, uploaded_by=self.alice,
+            )
+            edit = reverse("crags:edit", args=[self.pending.pk])
+            edit_with_next = f"{edit}?{urlencode({'next': self.QUEUE})}"
+            response = self.client.post(
+                reverse("crags:photo_delete", args=[photo.pk]), {"next": edit_with_next}
+            )
+        self.assertRedirects(response, edit_with_next)
+
+    def test_external_target_is_ignored(self):
+        response = self.client.post(
+            reverse("crags:publish", args=[self.pending.pk]),
+            {"next": "https://evil.example/"},
+        )
+        self.assertRedirects(response, self.detail(self.pending))
+
+    def test_without_target_actions_go_to_crag_page(self):
+        response = self.client.post(reverse("crags:publish", args=[self.pending.pk]))
+        self.assertRedirects(response, self.detail(self.pending))
+
+    def test_detail_with_target_is_not_stored_offline(self):
+        self.client.logout()
+        plain = self.client.get(self.detail(self.published))
+        with_target = self.client.get(self.detail(self.published, "/"))
+        self.assertEqual(plain["X-Offline-Cache"], "1")
+        self.assertNotIn("X-Offline-Cache", with_target)
+
+
+class SearchSuggestionTests(CragTestBase):
+    """Data and markup for the type-ahead fields (static/js/suggest.js and its users)."""
+
+    def suggestions(self):
+        response = self.client.get(reverse("crags:suggestions"))
+        self.assertEqual(response.status_code, 200)
+        return response
+
+    def test_endpoint_lists_public_crags_and_their_areas(self):
+        Area.objects.create(name="Empty area")  # no public crag: not suggested
+        self.assertEqual(
+            self.suggestions().json(),
+            {
+                "areas": ["Allgau"],
+                "crags": [
+                    {
+                        "name": "Public",
+                        "area": "Allgau",
+                        "url": reverse("crags:detail", args=[self.published.pk]),
+                    },
+                    {  # pending crags are listed publicly too, with a label
+                        "name": "Waiting",
+                        "area": "Allgau",
+                        "url": reverse("crags:detail", args=[self.pending.pk]),
+                    },
+                ],
+            },
+        )
+
+    def test_endpoint_hides_drafts_even_from_their_owner(self):
+        self.client.force_login(self.alice)
+        names = [crag["name"] for crag in self.suggestions().json()["crags"]]
+        self.assertNotIn("Draft entry", names)
+
+    def test_endpoint_is_cached_privately_for_a_few_minutes(self):
+        cache = self.suggestions()["Cache-Control"]
+        self.assertIn("private", cache)
+        self.assertIn("max-age=300", cache)
+
+    def test_list_page_does_not_embed_all_crag_names(self):
+        response = self.client.get(reverse("crags:list"), {"q": "nothing"})
+        self.assertNotContains(response, "Public")
+        self.assertContains(
+            response, f'data-crag-search="{reverse("crags:suggestions")}"'
+        )
+
+    def test_crag_form_groups_area_fields_for_the_picker(self):
+        self.client.force_login(self.alice)
+        content = self.client.get(reverse("crags:create")).content.decode()
+        picker = content.index("<div data-area-picker>")
+        self.assertLess(picker, content.index('name="area"'))
+        self.assertLess(content.index('name="area"'), content.index('name="new_area"'))
+        self.assertEqual(content.count('name="new_area"'), 1)
+        # nothing else between the two fields
+        between = content[content.index('name="area"'):content.index('name="new_area"')]
+        self.assertNotIn('name="', between.replace('name="area"', "", 1))
+
+    def test_area_options_are_sorted_by_name(self):
+        Area.objects.create(name="Zillertal")
+        Area.objects.create(name="Allgäu Ost")
+        self.client.force_login(self.alice)
+        content = self.client.get(reverse("crags:create")).content.decode()
+        names = re.findall(r'<option value="\d+"[^>]*>([^<]+)</option>', content)
+        area_names = [n for n in names if n in {"Allgau", "Allgäu Ost", "Zillertal"}]
+        self.assertEqual(area_names, ["Allgau", "Allgäu Ost", "Zillertal"])
+
+    def test_scripts_load_shared_suggest_first(self):
+        content = self.client.get(reverse("crags:list")).content.decode()
+        positions = [
+            content.index(f"js/{name}.js")
+            for name in ("suggest", "guidebook-picker", "area-picker", "crag-search")
+        ]
+        self.assertEqual(positions, sorted(positions))
+
+
+class MultiSelectFilterTests(CragTestBase):
+    """Area and aspect take several values (?area=A&area=B); one star minimum per age group."""
+
+    def setUp(self):
+        self.other_area = Area.objects.create(name="Tannheim Valley")
+        self.third_area = Area.objects.create(name="Zillertal")
+        self.tannheim = Crag.objects.create(
+            name="Tannheim crag", area=self.other_area, created_by=self.alice,
+            status=Crag.Status.PUBLISHED, orientation="N",
+        )
+        self.ziller = Crag.objects.create(
+            name="Ziller crag", area=self.third_area, created_by=self.alice,
+            status=Crag.Status.PUBLISHED, orientation="W",
+        )
+
+    def names(self, **params):
+        response = self.client.get(reverse("crags:list"), params)
+        self.assertEqual(response.status_code, 200)
+        return {crag.name for crag in response.context["crags"]}, response
+
+    def test_several_areas_show_crags_from_any_of_them(self):
+        names, response = self.names(area=["Allgau", "Tannheim Valley"])
+        self.assertEqual(names, {"Public", "Waiting", "Tannheim crag"})
+        self.assertEqual(response.context["selected_areas"], ["Allgau", "Tannheim Valley"])
+        self.assertEqual(response.context["active_filters"], 1)  # one dropdown
+
+    def test_unknown_and_empty_areas_are_ignored(self):
+        names, response = self.names(area=["Nowhere", "", "Zillertal", "Zillertal"])
+        self.assertEqual(names, {"Ziller crag"})
+        self.assertEqual(response.context["selected_areas"], ["Zillertal"])
+
+    def test_only_unknown_area_means_no_area_filter(self):
+        names, response = self.names(area=["Nowhere"])
+        self.assertEqual(names, {"Public", "Waiting", "Tannheim crag", "Ziller crag"})
+        self.assertEqual(response.context["active_filters"], 0)
+
+    def test_several_aspects_show_crags_with_any_of_them(self):
+        names, response = self.names(orientation=["W", "N", "bogus"])
+        self.assertEqual(names, {"Tannheim crag", "Ziller crag"})
+        self.assertEqual(response.context["selected_orientations"], ["W", "N"])
+        # labels in compass order for the closed dropdown
+        self.assertEqual(response.context["selected_orientation_labels"], ["North", "West"])
+
+    def test_each_age_group_has_its_own_minimum(self):
+        self.published.rating_babies = 4
+        self.published.rating_ages_5_plus = 2
+        self.published.save()
+        self.tannheim.rating_babies = 5
+        self.tannheim.rating_ages_5_plus = 4
+        self.tannheim.save()
+
+        names, response = self.names(rating_babies="4")
+        self.assertEqual(names, {"Public", "Tannheim crag"})
+
+        # every chosen minimum must be met
+        names, response = self.names(rating_babies="4", rating_ages_5_plus="3")
+        self.assertEqual(names, {"Tannheim crag"})
+        self.assertEqual(response.context["active_filters"], 2)
+
+        # different minimums per group
+        names, _ = self.names(rating_babies="5", rating_ages_5_plus="1")
+        self.assertEqual(names, {"Tannheim crag"})
+
+    def test_unrated_age_group_does_not_match_a_minimum(self):
+        self.published.rating_babies = None
+        self.published.save()
+        names, _ = self.names(rating_babies="1")
+        self.assertNotIn("Public", names)
+
+    def test_old_age_and_rating_parameters_are_ignored(self):
+        names, response = self.names(age="babies", rating="5")
+        self.assertEqual(names, {"Public", "Waiting", "Tannheim crag", "Ziller crag"})
+        self.assertEqual(response.context["active_filters"], 0)
+
+    def test_filters_combine(self):
+        self.tannheim.rating_ages_2_4 = 3
+        self.tannheim.save()
+        names, response = self.names(
+            area=["Tannheim Valley", "Zillertal"], orientation=["N", "W"], rating_ages_2_4="3"
+        )
+        self.assertEqual(names, {"Tannheim crag"})
+        self.assertEqual(response.context["active_filters"], 3)
+
+    def test_dropdowns_render_selection(self):
+        _, response = self.names(
+            area=["Zillertal", "Allgau"], orientation=["N", "W"], rating_ages_5_plus="3"
+        )
+        content = response.content.decode()
+        checked = set(re.findall(r'name="(area|orientation)" value="([^"]+)" checked', content))
+        self.assertEqual(
+            checked,
+            {("area", "Zillertal"), ("area", "Allgau"), ("orientation", "N"), ("orientation", "W")},
+        )
+        self.assertIn('data-multi-select-value>Allgau, Zillertal</span>', content)  # list order
+        self.assertIn('data-multi-select-value>North, West</span>', content)
+        self.assertInHTML('<option value="3" selected>3+ stars</option>', content)
+        self.assertEqual(content.count('<select name="rating_'), 3)
+        self.assertNotIn('<select name="area"', content)
+        self.assertNotIn('name="age"', content)
+
+    def test_no_template_comment_leaks_into_the_page(self):
+        _, response = self.names(area=["Allgau"])
+        self.assertNotContains(response, "{#")
+        self.assertNotContains(response, "#}")
+
+    def test_empty_dropdowns_show_placeholder(self):
+        _, response = self.names()
+        content = response.content.decode()
+        self.assertIn("data-multi-select-value>All areas</span>", content)
+        self.assertIn("data-multi-select-value>Any aspect</span>", content)
+
+
+class CragListSortTests(CragTestBase):
+    """The list is sorted by last update (newest first) unless ?sort= says otherwise."""
+
+    def setUp(self):
+        now = timezone.now()
+        self.zebra = Crag.objects.create(
+            name="Zebra wall", area=self.area, created_by=self.alice,
+            status=Crag.Status.PUBLISHED,
+        )
+        # queryset.update() bypasses auto_now, so the order is fixed
+        Crag.objects.filter(pk=self.published.pk).update(updated_at=now - timedelta(days=3))
+        Crag.objects.filter(pk=self.pending.pk).update(updated_at=now - timedelta(days=1))
+        Crag.objects.filter(pk=self.zebra.pk).update(updated_at=now - timedelta(days=2))
+
+    def order(self, **params):
+        response = self.client.get(reverse("crags:list"), params)
+        return [crag.name for crag in response.context["crags"]], response
+
+    def test_default_is_last_updated_newest_first(self):
+        names, response = self.order()
+        self.assertEqual(names, ["Waiting", "Zebra wall", "Public"])
+        self.assertEqual(response.context["selected_sort"], "updated")
+
+    def test_oldest_first(self):
+        names, _ = self.order(sort="updated_oldest")
+        self.assertEqual(names, ["Public", "Zebra wall", "Waiting"])
+
+    def test_by_name(self):
+        names, _ = self.order(sort="name")
+        self.assertEqual(names, ["Public", "Waiting", "Zebra wall"])
+
+    def test_unknown_sort_falls_back_to_default(self):
+        names, response = self.order(sort="-updated_at; drop table")
+        self.assertEqual(names, ["Waiting", "Zebra wall", "Public"])
+        self.assertEqual(response.context["selected_sort"], "updated")
+
+    def test_new_crag_comes_first(self):
+        Crag.objects.create(
+            name="Brand new", area=self.area, created_by=self.alice,
+            status=Crag.Status.PUBLISHED,
+        )
+        names, _ = self.order()
+        self.assertEqual(names[0], "Brand new")
+
+    def test_editing_a_crag_moves_it_to_the_top(self):
+        self.client.force_login(self.alice)
+        self.client.post(
+            reverse("crags:edit", args=[self.published.pk]),
+            form_data(self.area, name="Public", action="draft"),
+        )
+        self.client.logout()
+        # alice's edit of a published crag sends it back to review: still public
+        names, _ = self.order()
+        self.assertEqual(names[0], "Public")
+
+    def test_sort_is_not_counted_as_a_filter(self):
+        _, response = self.order(sort="name")
+        self.assertEqual(response.context["active_filters"], 0)
+
+    def test_sort_select_shows_choice(self):
+        _, response = self.order(sort="updated_oldest")
+        self.assertInHTML(
+            '<option value="updated_oldest" selected>Last updated: oldest first</option>',
+            response.content.decode(),
+        )
+
+    def test_clear_filters_keeps_search_and_sort(self):
+        _, response = self.order(sort="name", q="wall", orientation="S")
+        self.assertEqual(
+            response.context["clear_filters_url"], f"{reverse('crags:list')}?q=wall&sort=name"
+        )
+        _, response = self.order(orientation="S")
+        self.assertEqual(response.context["clear_filters_url"], reverse("crags:list"))

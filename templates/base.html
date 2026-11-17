@@ -109,13 +109,9 @@
 
             <small>
                 <strong>gr8base community</strong><br>
-                Find and share family-friendly climbing crags.
-            </small>
-
-            <small>
-                <a href="{% url 'docs' %}">
-                    Documentation
-                </a>
+                Find and share climbing crags with a great (or not so great) base, so others can decide whether it suits them.
+            <br>
+                <a href="{% url 'docs' %}">Documentation</a>
                 &middot;
                 <a href="{% url 'doc_page' 'impressum' %}">Legal notice</a>
                 &middot;
@@ -158,7 +154,10 @@
     <script src="{% static 'js/photo-gallery.js' %}" defer></script>
     <script src="{% static 'js/location-picker.js' %}" defer></script>
     <script src="{% static 'js/crag-filters.js' %}" defer></script>
+    <script src="{% static 'js/suggest.js' %}" defer></script>{# before its users below #}
     <script src="{% static 'js/guidebook-picker.js' %}" defer></script>
+    <script src="{% static 'js/area-picker.js' %}" defer></script>
+    <script src="{% static 'js/crag-search.js' %}" defer></script>
     <script>
         // Offline support: keeps visited crag pages readable without signal (templates/sw.js)
         if ("serviceWorker" in navigator) {

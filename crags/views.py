@@ -4,8 +4,11 @@ from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.db.models import Avg, Count, Q
+from django.http import JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
+from django.utils.http import url_has_allowed_host_and_scheme, urlencode
+from django.views.decorators.cache import cache_control
 from django.views.decorators.http import require_POST
 
 from gr8base.offline import offline_cacheable
@@ -16,9 +19,39 @@ from .models import Area, Crag, CragComment, CragRating, Feature, InvalidTransit
 logger = logging.getLogger(__name__)
 
 MAX_PHOTOS_PER_CRAG = 8
+SUGGESTIONS_MAX_AGE = 300  # seconds; new crags show up in suggestions after this
 MAX_FILES_PER_UPLOAD = 8
 
 PUBLISH_PERM = "crags.can_publish_crag"
+
+
+def return_target(request):
+    """The page to go back to after an action, e.g. the moderation queue, or "".
+
+    Passed along as ``next`` (query string or hidden field); only local URLs count.
+    """
+    target = request.POST.get("next") or request.GET.get("next") or ""
+    if url_has_allowed_host_and_scheme(
+        target, allowed_hosts={request.get_host()}, require_https=request.is_secure()
+    ):
+        return target
+    return ""
+
+
+def with_query(url, params):
+    """url with the non-empty params as a query string."""
+    params = {key: value for key, value in params.items() if value}
+    return f"{url}?{urlencode(params)}" if params else url
+
+
+def with_next(url, target):
+    """Append ``?next=target`` to url, so the following page can return there."""
+    return f"{url}?{urlencode({'next': target})}" if target else url
+
+
+def detail_url(crag, request):
+    """The crag page, keeping the return target (used when an action failed)."""
+    return with_next(reverse("crags:detail", args=[crag.pk]), return_target(request))
 
 
 def report_photo_coordinates(request, crag):
@@ -85,12 +118,25 @@ def removable_crags(user):
     return Crag.objects.filter(created_by=user)
 
 
+def unique(values):
+    """Non-empty values in their first order, without repeats."""
+    return list(dict.fromkeys(value for value in values if value))
+
+
 AGE_FIELDS = {
     "babies": ("Babies", "rating_babies"),
     "ages_2_4": ("Ages 2–4", "rating_ages_2_4"),
     "ages_5_plus": ("Ages 5+", "rating_ages_5_plus"),
 }
 APPROACH_CHOICES = (5, 10, 15, 20, 30)
+# ?sort= values for the crag list; the first one is the default.
+# updated_at is set on creation too, so a new crag counts as just modified.
+SORT_CHOICES = {
+    "updated": ("Last updated: newest first", ("-updated_at", "-pk")),
+    "updated_oldest": ("Last updated: oldest first", ("updated_at", "pk")),
+    "name": ("Name: A–Z", ("name", "pk")),
+}
+DEFAULT_SORT = "updated"
 STROLLER_SLUG = "stroller_friendly"
 
 
@@ -99,11 +145,22 @@ def crag_list(request):
     crags = Crag.objects.select_related("area").public()
     get = request.GET
     query = get.get("q", "").strip()
-    area_name = get.get("area", "")
-    min_rating = get.get("rating", "")
-    age = get.get("age", "")
-    orientation = get.get("orientation", "")
+    # area and orientation may be given several times (?area=A&area=B)
+    area_names = unique(get.getlist("area"))
+    # one minimum star rating per age group, e.g. ?rating_babies=4&rating_ages_5_plus=3
+    min_ratings = {
+        field: int(get[field])
+        for _, field in AGE_FIELDS.values()
+        if get.get(field, "").isdecimal() and 1 <= int(get[field]) <= 5
+    }
+    orientations = [
+        value for value in unique(get.getlist("orientation"))
+        if value in Crag.Orientation.values
+    ]
     max_approach = get.get("max_approach", "")
+    sort = get.get("sort", "")
+    if sort not in SORT_CHOICES:
+        sort = DEFAULT_SORT
     stroller_approach = get.get("stroller_approach") == "1"
     stroller_base = get.get("stroller_base") == "1"
 
@@ -111,14 +168,9 @@ def crag_list(request):
     hazard_slugs = {h.slug for h in hazards}
     avoid = [slug for slug in get.getlist("avoid") if slug in hazard_slugs]
 
-    if area_name and not Area.objects.filter(name=area_name).exists():
-        area_name = ""
-    if not (min_rating.isdecimal() and 1 <= int(min_rating) <= 5):
-        min_rating = ""
-    if age not in AGE_FIELDS:
-        age = ""
-    if orientation not in Crag.Orientation.values:
-        orientation = ""
+    if area_names:
+        known = set(Area.objects.filter(name__in=area_names).values_list("name", flat=True))
+        area_names = [name for name in area_names if name in known]
     if not (max_approach.isdecimal() and int(max_approach) in APPROACH_CHOICES):
         max_approach = ""
 
@@ -129,24 +181,16 @@ def crag_list(request):
             | Q(description__icontains=query)
         )
 
-    if area_name:
-        crags = crags.filter(area__name=area_name)
+    if area_names:  # any of the areas
+        crags = crags.filter(area__name__in=area_names)
 
-    if age:
-        field = AGE_FIELDS[age][1]
-        if min_rating:
-            crags = crags.filter(**{f"{field}__gte": min_rating})
-        else:
-            crags = crags.filter(**{f"{field}__isnull": False})
-    elif min_rating:
-        crags = crags.filter(
-            Q(rating_babies__gte=min_rating)
-            | Q(rating_ages_2_4__gte=min_rating)
-            | Q(rating_ages_5_plus__gte=min_rating)
-        )
+    # Every age group with a minimum must reach it (a family with a baby and a
+    # 6-year-old needs a crag that is good for both).
+    for field, stars in min_ratings.items():
+        crags = crags.filter(**{f"{field}__gte": stars})
 
-    if orientation:
-        crags = crags.filter(orientation=orientation)
+    if orientations:  # any of the aspects
+        crags = crags.filter(orientation__in=orientations)
 
     if max_approach:
         crags = crags.filter(approach_minutes__lte=max_approach)
@@ -163,7 +207,7 @@ def crag_list(request):
             Q(approach_features__slug=slug) | Q(base_features__slug=slug)
         )
 
-    crags = list(crags.distinct().order_by("name"))
+    crags = list(crags.distinct().order_by(*SORT_CHOICES[sort][1]))
     # Community averages in one query; set on the crags so the template stays simple
     averages = {
         row["crag_id"]: row
@@ -191,17 +235,16 @@ def crag_list(request):
         crag.community = averages.get(crag.pk, {})
         crag.comment_count = comment_counts.get(crag.pk, 0)
         crag.cover_photo = cover_photos.get(crag.pk)
-    areas = (
+    areas = list(
         Area.objects.filter(crags__status__in=Crag.PUBLIC_STATUSES)
         .distinct()
         .order_by("name")
     )
 
     active_filters = (
-        bool(area_name)
-        + bool(min_rating)
-        + bool(age)
-        + bool(orientation)
+        bool(area_names)
+        + len(min_ratings)
+        + bool(orientations)
         + bool(max_approach)
         + stroller_approach
         + stroller_base
@@ -212,22 +255,65 @@ def crag_list(request):
         "crags": crags,
         "areas": areas,
         "query": query,
-        "selected_area": area_name,
-        "selected_rating": min_rating,
-        "selected_age": age,
-        "selected_orientation": orientation,
+        "selected_areas": area_names,
+        # in dropdown order, for the closed dropdown ("Allgäu, Zillertal")
+        "selected_area_labels": [area.name for area in areas if area.name in area_names],
+        "selected_orientations": orientations,
+        # labels in choice order, for the closed dropdown ("South-East, South")
+        "selected_orientation_labels": [
+            label for value, label in Crag.Orientation.choices if value in orientations
+        ],
+        # (field, label, chosen minimum as a string or "") per age group
+        "age_ratings": [
+            (field, label, str(min_ratings.get(field, "")))
+            for label, field in AGE_FIELDS.values()
+        ],
+        "star_choices": [("5", "5 stars"), ("4", "4+ stars"), ("3", "3+ stars"), ("2", "2+ stars"), ("1", "1+ stars")],
         "selected_max_approach": max_approach,
         "stroller_approach": stroller_approach,
         "stroller_base": stroller_base,
         "selected_avoid": avoid,
-        "age_choices": [(key, label) for key, (label, _) in AGE_FIELDS.items()],
         "orientation_choices": Crag.Orientation.choices,
         "approach_choices": APPROACH_CHOICES,
+        "sort_choices": [(value, label) for value, (label, _) in SORT_CHOICES.items()],
+        "selected_sort": sort,
+        # "Clear filters" keeps the search text and the sort order (not a filter)
+        "clear_filters_url": with_query(
+            reverse("crags:list"),
+            {"q": query, "sort": "" if sort == DEFAULT_SORT else sort},
+        ),
         "hazards": hazards,
         "active_filters": active_filters,
         "filters_open": bool(active_filters) or "f" in get,
     }
     return render(request, "crags/crag_list.html", context)
+
+
+@cache_control(private=True, max_age=SUGGESTIONS_MAX_AGE)
+def crag_suggestions(request):
+    """Names for the search box's type-ahead (static/js/crag-search.js).
+
+    All public crags and their areas, fetched once when the search box is first
+    used, so the list page itself stays small. Only public data, so the browser
+    may keep it for a few minutes ("private": not shared caches, since the
+    response can carry cookies).
+    """
+    crags = Crag.objects.public().order_by("name").values_list("pk", "name", "area__name")
+    areas = (
+        Area.objects.filter(crags__status__in=Crag.PUBLIC_STATUSES)
+        .distinct()
+        .order_by("name")
+        .values_list("name", flat=True)
+    )
+    return JsonResponse(
+        {
+            "areas": list(areas),
+            "crags": [
+                {"name": name, "area": area, "url": reverse("crags:detail", args=[pk])}
+                for pk, name, area in crags
+            ],
+        }
+    )
 
 
 @offline_cacheable
@@ -269,6 +355,7 @@ def crag_detail(request, pk):
             "can_return": can_return_now(request.user, crag),
             "can_reject": can_reject_now(request.user, crag),
             "min_reason_length": Crag.MIN_REASON_LENGTH,
+            "next": return_target(request),
             "community": community,
             "can_rate": can_rate,
             "my_rating": my_rating,
@@ -553,7 +640,7 @@ def crag_edit(request, pk):
                     messages.success(request, f"Uploaded {len(converted)} photo(s).")
                 if photo_coordinates:
                     report_photo_coordinates(request, crag)
-                return redirect("crags:detail", pk=crag.pk)
+                return redirect(return_target(request) or detail_url(crag, request))
     else:
         form = CragForm(instance=crag)
         photo_form = BulkPhotoForm()
@@ -588,6 +675,7 @@ def crag_edit(request, pk):
             "hide_draft_and_submit": request.user.has_perm(PUBLISH_PERM)
             and crag.status == Crag.Status.PUBLISHED,
             "can_remove": removable_crags(request.user).filter(pk=crag.pk).exists(),
+            "next": return_target(request),
         },
     )
 
@@ -676,7 +764,8 @@ def crag_publish(request, pk):
     else:
         logger.info("crag published id=%s user=%s", crag.pk, request.user.pk)
         messages.success(request, f"Crag \u201c{crag.name}\u201d published.")
-    return redirect("crags:detail", pk=crag.pk)
+        return redirect(return_target(request) or detail_url(crag, request))
+    return redirect(detail_url(crag, request))
 
 
 @login_required
@@ -693,7 +782,8 @@ def crag_reject(request, pk):
     else:
         logger.info("crag rejected id=%s user=%s", crag.pk, request.user.pk)
         messages.success(request, f"Crag \u201c{crag.name}\u201d rejected.")
-    return redirect("crags:detail", pk=crag.pk)
+        return redirect(return_target(request) or detail_url(crag, request))
+    return redirect(detail_url(crag, request))
 
 
 @login_required
@@ -707,7 +797,7 @@ def crag_return(request, pk):
     error = reason_error(reason)
     if error:
         messages.error(request, error)
-        return redirect("crags:detail", pk=crag.pk)
+        return redirect(detail_url(crag, request))
     try:
         crag.transition(Crag.Status.NEEDS_CHANGES, request.user, reason)
     except (InvalidTransition, ValidationError) as exc:
@@ -715,7 +805,8 @@ def crag_return(request, pk):
     else:
         logger.info("crag returned id=%s user=%s", crag.pk, request.user.pk)
         messages.success(request, f"Crag \u201c{crag.name}\u201d sent back to the submitter.")
-    return redirect("crags:detail", pk=crag.pk)
+        return redirect(return_target(request) or detail_url(crag, request))
+    return redirect(detail_url(crag, request))
 
 
 @login_required
@@ -726,7 +817,7 @@ def crag_delete(request, pk):
     crag.transition(Crag.Status.REMOVED, request.user)
     logger.info("crag removed id=%s user=%s", crag.pk, request.user.pk)
     messages.success(request, f"Crag \u201c{crag.name}\u201d removed.")
-    return redirect("crags:mine")
+    return redirect(return_target(request) or "crags:mine")
 
 
 @login_required
@@ -742,6 +833,5 @@ def photo_delete(request, pk):
         "photo deleted id=%s crag=%s user=%s", photo_pk, crag_pk, request.user.pk
     )
     messages.success(request, "Photo deleted.")
-    if request.POST.get("next") == "edit":
-        return redirect("crags:edit", pk=crag_pk)
-    return redirect("crags:detail", pk=crag_pk)
+    # from the edit page, next is the edit page itself (with its own return target)
+    return redirect(return_target(request) or reverse("crags:detail", args=[crag_pk]))

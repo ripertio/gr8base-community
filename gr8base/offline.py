@@ -23,6 +23,9 @@ def offline_cacheable(view):
         if (
             request.method == "GET"
             and response.status_code == 200
+            # a ?next= copy (e.g. opened from the moderation queue) would only
+            # duplicate the plain page in the offline store
+            and "next" not in request.GET
             and not (messages is not None and len(messages))
         ):
             response[OFFLINE_HEADER] = "1"

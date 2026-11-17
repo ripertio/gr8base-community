@@ -9,12 +9,25 @@
         <article><small>{{ note }}</small></article>
     {% endif %}
 
+    {% if next %}
+        <p><a href="{{ next }}">← Back</a></p>
+    {% endif %}
+
     <form id="crag-form" method="post" enctype="multipart/form-data">
         {% csrf_token %}
+        {% if next %}<input type="hidden" name="next" value="{{ next }}">{% endif %}
         {{ form.non_field_errors }}
         {% for field in form %}
             {% if "new_guidebook" in field.name %}
                 {# rendered inside the guidebook dialog below #}
+            {% elif field.name == "new_area" %}
+                {# rendered together with "area" below #}
+            {% elif field.name == "area" %}
+                {# one searchable field with "add new" (static/js/area-picker.js) #}
+                <div data-area-picker>
+                    {{ field.as_field_group }}
+                    {{ form.new_area.as_field_group }}
+                </div>
             {% else %}
             {% if field.name == "approach_assessed" or field.name == "base_assessed" %}
                 <fieldset>
@@ -114,7 +127,7 @@
                   action="{% url 'crags:photo_delete' photo.pk %}"
                   onsubmit="return confirm('Delete this photo?')">
                 {% csrf_token %}
-                <input type="hidden" name="next" value="edit">
+                <input type="hidden" name="next" value="{% url 'crags:edit' crag.pk %}{% if next %}?next={{ next|urlencode:'' }}{% endif %}">
             </form>
         {% endfor %}
         {% if can_remove %}
@@ -122,6 +135,7 @@
                   action="{% url 'crags:delete' crag.pk %}"
                   onsubmit="return confirm('Really remove this crag? It will no longer be visible.')">
                 {% csrf_token %}
+                {% if next %}<input type="hidden" name="next" value="{{ next }}">{% endif %}
             </form>
         {% endif %}
     {% endif %}

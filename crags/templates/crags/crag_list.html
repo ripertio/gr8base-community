@@ -13,7 +13,7 @@ Find crags – gr8base community
     <h1>Find crags</h1>
 
     <p class="area">
-        Family-friendly climbing crags for your next outing.
+        for your next outing, with a base that suits your needs.
     </p>
 
 </section>
@@ -41,6 +41,7 @@ Find crags – gr8base community
                     value="{{ query }}"
                     placeholder="Search crags or areas..."
                     aria-label="Search crags or areas"
+                    data-crag-search="{% url 'crags:suggestions' %}"
                 >
 
                 <button
@@ -95,11 +96,11 @@ Find crags – gr8base community
         </div>
 
 
-        <div class="filters-panel" id="filters-panel"{% if not filters_open %} hidden{% endif %} onchange="this.closest('form').submit()">
+        <div class="filters-panel" id="filters-panel"{% if not filters_open %} hidden{% endif %} onchange="if (!event.target.closest('[data-multi-select]')) this.closest('form').submit()">
 
             {% if active_filters %}
                 <p class="filters-clear">
-                    <a href="{% url 'crags:list' %}{% if query %}?q={{ query|urlencode }}{% endif %}">
+                    <a href="{{ clear_filters_url }}">
                         Clear filters
                     </a>
                 </p>
@@ -107,35 +108,50 @@ Find crags – gr8base community
 
             <div class="filters-grid">
 
-                <label>
-                    Area
-                    <select name="area">
-                        <option value="">All areas</option>
-                        {% for area in areas %}
-                            <option value="{{ area.name }}" {% if selected_area == area.name %}selected{% endif %}>{{ area.name }}</option>
-                        {% endfor %}
-                    </select>
-                </label>
+                {% comment %}
+                    Multi-select dropdowns: Pico's details.dropdown with checkboxes.
+                    static/js/crag-filters.js reloads the list once the dropdown closes.
+                {% endcomment %}
+                <div class="filter-field">
+                    <span class="filter-label" id="filter-area-label">Area</span>
+                    <details class="dropdown" data-multi-select data-empty="All areas">
+                        <summary aria-labelledby="filter-area-label filter-area-value"><span id="filter-area-value" data-multi-select-value>{% if selected_area_labels %}{{ selected_area_labels|join:", " }}{% else %}All areas{% endif %}</span></summary>
+                        <ul>
+                            {% for area in areas %}
+                                <li>
+                                    <label>
+                                        <input type="checkbox" name="area" value="{{ area.name }}" {% if area.name in selected_areas %}checked{% endif %}>
+                                        {{ area.name }}
+                                    </label>
+                                </li>
+                            {% endfor %}
+                        </ul>
+                    </details>
+                </div>
+
+                <div class="filter-field">
+                    <span class="filter-label" id="filter-aspect-label">Aspect</span>
+                    <details class="dropdown" data-multi-select data-empty="Any aspect">
+                        <summary aria-labelledby="filter-aspect-label filter-aspect-value"><span id="filter-aspect-value" data-multi-select-value>{% if selected_orientation_labels %}{{ selected_orientation_labels|join:", " }}{% else %}Any aspect{% endif %}</span></summary>
+                        <ul>
+                            {% for value, label in orientation_choices %}
+                                <li>
+                                    <label>
+                                        <input type="checkbox" name="orientation" value="{{ value }}" {% if value in selected_orientations %}checked{% endif %}>
+                                        {{ label }}
+                                    </label>
+                                </li>
+                            {% endfor %}
+                        </ul>
+                    </details>
+                </div>
 
                 <label>
-                    Age group
-                    <select name="age">
-                        <option value="">Any age</option>
-                        {% for key, label in age_choices %}
-                            <option value="{{ key }}" {% if selected_age == key %}selected{% endif %}>{{ label }}</option>
+                    Sort by
+                    <select name="sort">
+                        {% for value, label in sort_choices %}
+                            <option value="{{ value }}" {% if selected_sort == value %}selected{% endif %}>{{ label }}</option>
                         {% endfor %}
-                    </select>
-                </label>
-
-                <label>
-                    Family rating
-                    <select name="rating">
-                        <option value="">Any rating</option>
-                        <option value="5" {% if selected_rating == "5" %}selected{% endif %}>5 stars</option>
-                        <option value="4" {% if selected_rating == "4" %}selected{% endif %}>4+ stars</option>
-                        <option value="3" {% if selected_rating == "3" %}selected{% endif %}>3+ stars</option>
-                        <option value="2" {% if selected_rating == "2" %}selected{% endif %}>2+ stars</option>
-                        <option value="1" {% if selected_rating == "1" %}selected{% endif %}>1+ stars</option>
                     </select>
                 </label>
 
@@ -149,17 +165,25 @@ Find crags – gr8base community
                     </select>
                 </label>
 
-                <label>
-                    Aspect
-                    <select name="orientation">
-                        <option value="">Any aspect</option>
-                        {% for value, label in orientation_choices %}
-                            <option value="{{ value }}" {% if selected_orientation == value %}selected{% endif %}>{{ label }}</option>
-                        {% endfor %}
-                    </select>
-                </label>
-
             </div>
+
+            {# one minimum star rating per age group; all chosen ones must be met #}
+            <fieldset class="filter-ratings">
+                <legend>Crag ratings</legend>
+                <div class="filters-grid">
+                    {% for field, label, selected in age_ratings %}
+                        <label>
+                            {{ label }}
+                            <select name="{{ field }}">
+                                <option value="">Any rating</option>
+                                {% for value, text in star_choices %}
+                                    <option value="{{ value }}" {% if selected == value %}selected{% endif %}>{{ text }}</option>
+                                {% endfor %}
+                            </select>
+                        </label>
+                    {% endfor %}
+                </div>
+            </fieldset>
 
             <div class="filters-checks">
 

@@ -325,6 +325,10 @@ class CragForm(forms.ModelForm):
 
         self.fields["area"].required = False
         self.fields["area"].empty_label = "– Please select –"
+        self.fields["area"].queryset = Area.objects.order_by("name")
+        self.fields["area"].help_text = (
+            "Search and pick the area of this crag, or add a new one."
+        )
 
     def clean(self):
         cleaned = super().clean()

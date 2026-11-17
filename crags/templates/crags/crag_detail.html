@@ -9,6 +9,10 @@
 
 {% block content %}
 
+{% if next %}
+    <p><a href="{{ next }}">← Back</a></p>
+{% endif %}
+
 {% if crag.status == "PENDING" %}
     <p><mark>Pending review</mark></p>
 {% elif crag.status == "NEEDS_CHANGES" %}
@@ -24,11 +28,12 @@
 {% if can_edit or can_publish or can_return or can_reject %}
     <div class="actions">
         {% if can_edit %}
-            <a href="{% url 'crags:edit' crag.pk %}" role="button" class="outline">Edit</a>
+            <a href="{% url 'crags:edit' crag.pk %}{% if next %}?next={{ next|urlencode:'' }}{% endif %}" role="button" class="outline">Edit</a>
         {% endif %}
         {% if can_publish %}
             <form method="post" action="{% url 'crags:publish' crag.pk %}">
                 {% csrf_token %}
+                {% if next %}<input type="hidden" name="next" value="{{ next }}">{% endif %}
                 <button type="submit">Publish</button>
             </form>
         {% endif %}
@@ -40,13 +45,17 @@
             <form method="post" action="{% url 'crags:reject' crag.pk %}"
                   onsubmit="return confirm('Reject this crag? Only a superuser can change its status afterwards.')">
                 {% csrf_token %}
+                {% if next %}<input type="hidden" name="next" value="{{ next }}">{% endif %}
                 <button type="submit" class="outline secondary">Reject</button>
             </form>
         {% endif %}
     </div>
 {% endif %}
 {% if can_return %}
-    <form id="return-form" method="post" action="{% url 'crags:return' crag.pk %}">{% csrf_token %}</form>
+    <form id="return-form" method="post" action="{% url 'crags:return' crag.pk %}">
+        {% csrf_token %}
+        {% if next %}<input type="hidden" name="next" value="{{ next }}">{% endif %}
+    </form>
     {% include "crags/_return_dialog.html" with form_id="return-form" %}
 {% endif %}
 
@@ -232,6 +241,7 @@
                                   action="{% url 'crags:photo_delete' photo.pk %}"
                                   onsubmit="return confirm('Delete this photo?')">
                                 {% csrf_token %}
+                                {% if next %}<input type="hidden" name="next" value="{% url 'crags:detail' crag.pk %}?next={{ next|urlencode:'' }}">{% endif %}
                                 <button type="submit" class="outline secondary">Delete</button>
                             </form>
                         {% endif %}

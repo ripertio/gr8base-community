@@ -3598,5 +3598,166 @@ class ChangeRequestTests(CragTestBase):
         self.published.delete()
         self.assertEqual(self.files("crags/suggested"), [])
 
+    # --- removing the crag (step 1) -------------------------------------------------
+
+    def test_removing_the_crag_declines_open_requests_and_deletes_photos(self):
+        self.suggest(images=[image_upload("a.jpg"), image_upload("b.jpg")])
+        change = self.latest()
+        self.assertEqual(len(self.files("crags/suggested")), 2)
+        self.published.transition(Crag.Status.REMOVED, self.alice)
+        change.refresh_from_db()
+        self.assertEqual((change.status, change.closed_by), ("DECLINED", self.alice))
+        self.assertEqual(change.messages.get().text, "The crag was removed.")
+        self.assertFalse(ChangeRequestPhoto.objects.exists())
+        self.assertEqual(self.files("crags/suggested"), [])
+
+    def test_removing_leaves_closed_requests_alone(self):
+        self.suggest()
+        change = self.latest()
+        self.close(self.alice, change, text="Done!")
+        self.published.transition(Crag.Status.REMOVED, self.alice)
+        change.refresh_from_db()
+        self.assertEqual(change.status, "DONE")
+        self.assertEqual(change.messages.count(), 1)
+
+    # --- withdrawing (step 2) ---------------------------------------------------------
+
+    def test_requester_can_withdraw_and_photos_are_deleted(self):
+        self.suggest(images=[image_upload("a.jpg")])
+        change = self.latest()
+        page = reverse("crags:change_request", args=[change.pk])
+        self.client.force_login(self.bob)
+        self.assertContains(self.client.get(page), "Withdraw suggestion")
+        response = self.client.post(reverse("crags:change_request_withdraw", args=[change.pk]), follow=True)
+        self.assertContains(response, "Your suggestion was withdrawn.")
+        change.refresh_from_db()
+        self.assertEqual((change.status, change.closed_by), ("WITHDRAWN", self.bob))
+        self.assertEqual(change.messages.get().kind, "WITHDRAWN")
+        self.assertEqual(self.files("crags/suggested"), [])
+        self.assertContains(response, "This change request is closed.")
+        self.assertNotContains(response, "Withdraw suggestion")
+        # no longer listed as open for the creator
+        self.client.force_login(self.alice)
+        self.assertNotContains(
+            self.client.get(reverse("crags:detail", args=[self.published.pk])), "Open change requests"
+        )
+
+    def test_only_the_requester_can_withdraw(self):
+        self.suggest()
+        change = self.latest()
+        url = reverse("crags:change_request_withdraw", args=[change.pk])
+        for user in (self.alice, self.manager):
+            self.client.force_login(user)
+            self.assertEqual(self.client.post(url).status_code, 403)
+            self.assertNotContains(
+                self.client.get(reverse("crags:change_request", args=[change.pk])), "Withdraw suggestion"
+            )
+        self.client.force_login(self.carol)
+        self.assertEqual(self.client.post(url).status_code, 404)
+        change.refresh_from_db()
+        self.assertEqual(change.status, "OPEN")
+
+    def test_closed_request_cannot_be_withdrawn(self):
+        self.suggest()
+        change = self.latest()
+        self.close(self.alice, change)
+        self.client.force_login(self.bob)
+        self.client.post(reverse("crags:change_request_withdraw", args=[change.pk]))
+        change.refresh_from_db()
+        self.assertEqual(change.status, "DONE")
+
+    # --- overview on "My crags" (step 3) ---------------------------------------------
+
+    def test_my_crags_lists_open_requests_on_my_crags(self):
+        self.suggest()
+        change = self.latest()
+        self.client.force_login(self.alice)
+        response = self.client.get(reverse("crags:mine"))
+        self.assertContains(response, "Open change requests on your crags")
+        self.assertContains(response, f'href="{reverse("crags:change_request", args=[change.pk])}">Public: Parking</a>')
+        self.close(self.alice, change)
+        self.assertNotContains(self.client.get(reverse("crags:mine")), "Open change requests on your crags")
+
+    def test_my_crags_lists_my_suggestions_with_status(self):
+        self.suggest()
+        change = self.latest()
+        self.close(self.alice, change, action="declined")
+        self.client.force_login(self.bob)
+        response = self.client.get(reverse("crags:mine"))
+        self.assertContains(response, "Your suggestions")
+        self.assertContains(response, "Declined · ")
+        self.assertNotContains(response, "Open change requests on your crags")
+
+    def test_my_crags_hides_requests_of_removed_crags(self):
+        self.suggest()
+        self.published.transition(Crag.Status.REMOVED, self.alice)
+        self.client.force_login(self.bob)
+        self.assertNotContains(self.client.get(reverse("crags:mine")), "Your suggestions")
+
+    # --- Django admin: superusers clean up (step 4) ------------------------------------
+
+    def superuser(self):
+        return User.objects.create_superuser("root", "root@example.com", "pw")
+
+    def test_admin_lists_and_shows_requests_to_superusers(self):
+        self.suggest(images=[image_upload("a.jpg")])
+        change = self.latest()
+        self.client.force_login(self.superuser())
+        changelist = self.client.get(reverse("admin:crags_changerequest_changelist"))
+        self.assertContains(changelist, "Public")
+        detail = self.client.get(reverse("admin:crags_changerequest_change", args=[change.pk]))
+        self.assertContains(detail, "The parking moved to the church.")
+        self.assertContains(detail, change.photos.get().image.url)
+        self.assertNotContains(detail, 'name="_save"')  # read-only
+
+    def test_admin_hidden_from_other_staff_and_moderators(self):
+        self.suggest()
+        url = reverse("admin:crags_changerequest_changelist")
+        for user in (self.staff, self.manager):
+            self.client.force_login(user)
+            self.assertEqual(self.client.get(url).status_code, 403, user.username)
+            self.assertNotContains(self.client.get(reverse("admin:index")), "Change requests")
+
+    def test_superuser_deletes_requests_with_everything(self):
+        self.suggest(images=[image_upload("a.jpg")])
+        change = self.latest()
+        self.assertTrue(Notification.objects.filter(change_request=change).exists())
+        self.client.force_login(self.superuser())
+        self.client.post(
+            reverse("admin:crags_changerequest_changelist"),
+            {"action": "delete_selected", "_selected_action": [change.pk], "post": "yes"},
+        )
+        self.assertFalse(ChangeRequest.objects.exists())
+        self.assertFalse(Notification.objects.filter(kind="CHANGE_REQUEST").exists())
+        self.assertEqual(self.files("crags/suggested"), [])
+
+    def test_superuser_deletes_only_the_photos(self):
+        self.suggest(images=[image_upload("a.jpg"), image_upload("b.jpg")])
+        change = self.latest()
+        self.client.force_login(self.superuser())
+        response = self.client.post(
+            reverse("admin:crags_changerequest_changelist"),
+            {"action": "delete_suggested_photos", "_selected_action": [change.pk]},
+            follow=True,
+        )
+        self.assertContains(response, "Deleted 2 suggested photo(s).")
+        self.assertTrue(ChangeRequest.objects.filter(pk=change.pk).exists())
+        self.assertEqual(self.files("crags/suggested"), [])
+
+    # --- logged-out visitors (step 5) --------------------------------------------------
+
+    def test_logged_out_visitors_are_invited_to_log_in(self):
+        login = f'{reverse("account_login")}?next={reverse("crags:suggest", args=[self.published.pk])}'
+        response = self.client.get(reverse("crags:detail", args=[self.published.pk]))
+        self.assertContains(response, f'<a href="{login}">Log in</a> to suggest a change to this crag.')
+        # not on unpublished crags, not when logged in
+        self.assertNotContains(
+            self.client.get(reverse("crags:detail", args=[self.pending.pk])), "to suggest a change"
+        )
+        self.client.force_login(self.bob)
+        self.assertNotContains(
+            self.client.get(reverse("crags:detail", args=[self.published.pk])), "to suggest a change"
+        )
+
     def test_privacy_page_describes_change_suggestions(self):
         self.assertContains(self.client.get("/docs/privacy/"), "Change suggestions")

@@ -53,6 +53,10 @@
         {% endif %}
     </div>
 {% endif %}
+{% if not user.is_authenticated and crag.status == "PUBLISHED" %}
+    {# after logging in, straight to the suggestion form #}
+    <p><small><a href="{% url 'account_login' %}?next={% url 'crags:suggest' crag.pk %}">Log in</a> to suggest a change to this crag.</small></p>
+{% endif %}
 {% if can_return %}
     <form id="return-form" method="post" action="{% url 'crags:return' crag.pk %}">
         {% csrf_token %}

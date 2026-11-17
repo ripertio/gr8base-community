@@ -179,3 +179,57 @@ class FaqNavigationTests(TestCase):
         content = self.client.get(reverse("crags:list")).content.decode()
         footer = content[content.index('<footer class="container site-footer">'):]
         self.assertIn(f'<a href="{reverse("docs")}">FAQ</a>', footer)
+
+
+class CrawlerFilesTests(TestCase):
+    def test_robots_txt_points_to_sitemap_and_hides_private_areas(self):
+        response = self.client.get("/robots.txt", secure=True)
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response["Content-Type"], "text/plain")
+        text = response.content.decode()
+        self.assertIn(f"Sitemap: {settings.SITE_URL}/sitemap.xml", text)
+        self.assertIn("Disallow: /admin/", text)
+
+    def test_sitemap_lists_public_pages_only(self):
+        from django.contrib.auth import get_user_model
+        from crags.models import Area, Crag
+        user = get_user_model().objects.create_user(username="u", email="u@example.com", password="x")
+        fields = dict(created_by=user, area=Area.objects.create(name="A"), latitude=47, longitude=11)
+        live = Crag.objects.create(name="Live", status=Crag.Status.PUBLISHED, **fields)
+        draft = Crag.objects.create(name="Draft", status=Crag.Status.DRAFT, **fields)
+        response = self.client.get("/sitemap.xml", secure=True)
+        self.assertEqual(response.status_code, 200)
+        body = response.content.decode()
+        self.assertIn(f"https://testserver/crags/{live.pk}/", body)
+        self.assertNotIn(f"/crags/{draft.pk}/", body)
+
+    def test_icon_requests_redirect_to_static_icons(self):
+        for path in ("/favicon.ico", "/apple-touch-icon.png", "/apple-touch-icon-precomposed.png"):
+            response = self.client.get(path, secure=True)
+            self.assertEqual(response.status_code, 302, path)
+            self.assertIn("/static/icons/", response["Location"])
+        self.assertIn("favicon-32", self.client.get("/favicon.ico", secure=True)["Location"])
+
+
+class AccessLogTests(TestCase):
+    def conf(self):
+        return runpy.run_path(str(settings.BASE_DIR / "gunicorn.conf.py"))
+
+    def test_access_log_uses_the_cloudflare_client_ip(self):
+        self.assertIn("{cf-connecting-ip}i", self.conf()["access_log_format"])
+
+    def test_healthy_health_checks_are_dropped_but_failures_kept(self):
+        flt = self.conf()["DropHealthyChecks"]()
+
+        def record(line):
+            return logging.LogRecord("gunicorn.access", logging.INFO, "", 0, line, None, None)
+
+        ok = '1.2.3.4 - - [x] "GET /healthz/ HTTP/1.1" 200 2 "-" "UptimeRobot"'
+        self.assertFalse(flt.filter(record(ok)))
+        self.assertFalse(flt.filter(record(ok.replace("GET", "HEAD"))))
+        self.assertTrue(flt.filter(record(ok.replace(" 200 ", " 503 "))))
+        self.assertTrue(flt.filter(record(ok.replace("/healthz/", "/crags/"))))
+
+    def test_head_health_check_has_no_body(self):
+        response = self.client.head(reverse("healthz"), secure=True)
+        self.assertEqual((response.status_code, response.content), (200, b""))

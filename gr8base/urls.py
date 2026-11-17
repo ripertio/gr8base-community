@@ -1,12 +1,14 @@
 from django.conf import settings
 from django.conf.urls.static import static
 from django.contrib import admin
+from django.contrib.sitemaps.views import sitemap
 from django.shortcuts import render
 from django.urls import include, path
 from crags import push
+from gr8base.sitemaps import SITEMAPS
 from crags.views import crag_list, notification_list, notification_settings
 from gr8base.views import (
-    cookie_consent, doc_index, doc_page, healthz, web_manifest,
+    cookie_consent, doc_index, doc_page, healthz, robots_txt, site_icon, web_manifest,
 )
 
 
@@ -25,6 +27,11 @@ urlpatterns = [
     path("docs/<slug:slug>/", doc_page, name="doc_page"),
     path("cookies/", cookie_consent, name="cookie_consent"),
     path("healthz/", healthz, name="healthz"),
+    path("robots.txt", robots_txt, name="robots_txt"),
+    path("sitemap.xml", sitemap, {"sitemaps": SITEMAPS}, name="sitemap"),
+    path("favicon.ico", site_icon),
+    path("apple-touch-icon.png", site_icon),
+    path("apple-touch-icon-precomposed.png", site_icon),
     path("manifest.webmanifest", web_manifest, name="web_manifest"),
     path("admin/", admin.site.urls),
     path("accounts/", include("allauth.urls")),

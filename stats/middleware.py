@@ -9,7 +9,6 @@ COOKIE = "seen_today"
 CONSENT_COOKIE = "cookie_consent"
 SKIPPED_PREFIXES = (
     "/static/", "/media/", "/admin/", "/healthz/", "/stats/", "/cookies/",
-    "/sw.js", "/offline/",  # requests made by the offline service worker, not visits
 )
 
 

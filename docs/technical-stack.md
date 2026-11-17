@@ -45,30 +45,11 @@ tail -f logs/app.log                # the same, from the files
 - **Single worker:** the size-based rotation assumes Gunicorn's single worker process. If `workers` is raised, use a rotation that is safe across processes (for example `logrotate` on the host).
 - **Not covered:** `$BACKUP_DIR/deploy.log` (read by `restore.sh`) stays next to the backups, see [scripts/README.md](../scripts/README.md). There is no alerting; errors are found by reading the logs.
 
-## Offline support
+## No service worker (offline copies removed)
 
-A small service worker ([templates/sw.js](../templates/sw.js), served by Django at `/sw.js`) keeps pages a visitor opened readable without mobile signal.
+Until November 2026 a service worker kept the pages a visitor opened, for reading without signal. It was removed completely:
 
-- **What is stored:** only pages whose view uses `@offline_cacheable` ([gr8base/offline.py](../gr8base/offline.py)): home, crag list, crag detail and the help pages. Every other page (forms, accounts, admin, moderation) is never stored. Pages that show a one-time message are not stored either. At most 50 pages; the oldest are dropped first.
-- **Not stored by the worker:** CSS, JS and photos. They are served as immutable (WhiteNoise, Caddy), so the browser's normal cache keeps them and uses them offline.
-- **Weak signal:** pages are loaded from the network first. If that takes longer than 4 seconds and a saved copy exists, the saved copy is shown and updated in the background.
-- **Never visited:** shows the standalone offline page (`/offline/`).
-- **Shared devices:** logging in or out deletes all stored pages. A crag that answers 404 is removed from the store.
-- **Updates:** `/sw.js` is sent with `Cache-Control: no-cache`, so browsers check it on every visit. Change `CACHE` in `sw.js` only when the stored format changes; old caches are deleted on activation.
-- **Adding a page:** decorate its view with `@offline_cacheable` only if the page is useful offline and contains nothing that must not stay on the device.
-- **Testing:** browser DevTools → Application → Service Workers; Network → "Offline" or "Slow 3G". `localhost` counts as secure, so it works in development.
+- Pages are personalised (private review threads, change requests, moderator tools), and the copies could stay on a shared device after the session ended.
+- The site is for choosing a crag, usually with signal, and the copies saved no data: pages were always loaded from the network first. Less data comes from the browser's normal cache instead: CSS and JS have hashed names and photos are served as immutable (WhiteNoise, Caddy), plus thumbnails and compression.
 
-**Emergency off switch.** If the worker misbehaves, replace the contents of `templates/sw.js` with the following and deploy. Browsers fetch the new worker on the next visit, delete the stored pages and remove the worker:
-
-```js
-self.addEventListener("install", () => self.skipWaiting());
-self.addEventListener("activate", (event) => {
-    event.waitUntil(
-        caches.keys()
-            .then((keys) => Promise.all(keys.map((key) => caches.delete(key))))
-            .then(() => self.registration.unregister())
-    );
-});
-```
-
-Also remove the registration script at the end of `templates/base.html`, so browsers don't install it again.
+There is no `/sw.js` and no registration script any more. A browser that still has the old worker keeps it until its site data is cleared (only one device had it). A service worker will be added again, written fresh, for push notifications (number badge on the app icon).

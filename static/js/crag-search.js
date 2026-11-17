@@ -1,5 +1,6 @@
 // Suggestions for the crag list search: matching areas and crags while typing.
 // Picking a crag opens it; picking an area filters the list by that area.
+// While the list is filtered by an area, only crags in that area are suggested.
 // Enter without picking a suggestion still runs the normal full-text search.
 //
 // The names come from data-crag-search (a JSON URL), loaded the first time the
@@ -20,14 +21,18 @@
     const MAX_TOTAL = 8;
 
     function source(text) {
-        const areaItems = areaSelect
+        // With an area filter active, stay inside that area: only its crags and
+        // no other areas (changing the area is the filter dropdown's job).
+        const filterArea = areaSelect ? areaSelect.value : "";
+        const areaItems = areaSelect && !filterArea
             ? gr8Match(areas, (name) => name, text, MAX_AREAS).map((name) => ({
                   type: "area",
                   text: name,
                   hint: "Area",
               }))
             : [];
-        const cragItems = gr8Match(crags, (crag) => crag.name, text, MAX_TOTAL - areaItems.length).map(
+        const candidates = filterArea ? crags.filter((crag) => crag.area === filterArea) : crags;
+        const cragItems = gr8Match(candidates, (crag) => crag.name, text, MAX_TOTAL - areaItems.length).map(
             (crag) => ({ type: "crag", text: crag.name, hint: crag.area, url: crag.url })
         );
         return [...areaItems, ...cragItems];

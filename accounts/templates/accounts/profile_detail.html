@@ -24,11 +24,21 @@
             {% else %}
                 Your profile is <strong>private</strong>, only you can see it.
             {% endif %}
-            <a href="{% url 'profiles:edit' %}">Edit profile</a> ·
+            <a href="{% url 'profiles:edit' %}">Edit profile</a>
+        </p>
+        {# the hub for your own things (no account menu in the header); a div, #}
+        {# not a <p>: the log-out <form> is not allowed inside a paragraph #}
+        <div class="profile-links">
+            <a href="{% url 'crags:mine' %}">My crags</a> ·
+            <a href="{% url 'notifications' %}"{% if unread_notification_count %} aria-label="Notifications, {{ unread_notification_count }} unread"{% endif %}>Notifications{% if unread_notification_count %}<span class="nav-count" aria-hidden="true">{{ unread_notification_count }}</span>{% endif %}</a> ·
+            <a href="{% url 'notification_settings' %}">Notification settings</a> ·
             <a href="{% url 'account_email' %}">Email</a> ·
             <a href="{% url 'account_change_password' %}">Password</a> ·
-            <a href="{% url 'crags:mine' %}">My crags</a>
-        </p>
+            <form method="post" action="{% url 'account_logout' %}" class="inline-form">
+                {% csrf_token %}
+                <button type="submit" class="link-button">Log out</button>
+            </form>
+        </div>
     {% endif %}
 
     <h2>Crags</h2>

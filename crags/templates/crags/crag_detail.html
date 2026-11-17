@@ -18,8 +18,7 @@
 {% elif crag.status == "NEEDS_CHANGES" %}
     <article>
         <header><strong>Changes requested</strong></header>
-        {% if can_edit %}<p>{{ crag.review_reason|linebreaksbr }}</p>
-        <p><small>Edit this crag and use "Submit for review" to resubmit it.</small></p>{% endif %}
+        {% if can_edit %}<p><small>The moderators asked for changes, see <a href="#review">the review</a> below. Reply there if something is unclear, or edit this crag and use "Submit for review" to resubmit it.</small></p>{% endif %}
     </article>
 {% elif crag.status != "PUBLISHED" %}
     <p><mark>Status: {{ crag.get_status_display }}</mark></p>
@@ -58,6 +57,8 @@
     </form>
     {% include "crags/_return_dialog.html" with form_id="return-form" %}
 {% endif %}
+
+{% if review %}{% include "crags/_review_thread.html" %}{% endif %}
 
 <a href="{% url 'crags:list' %}">
     ← All crags

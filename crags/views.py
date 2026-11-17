@@ -1,4 +1,5 @@
 import logging
+from datetime import timedelta
 
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
@@ -7,6 +8,7 @@ from django.db.models import Avg, Count, Q
 from django.http import JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
+from django.utils import timezone
 from django.utils.http import url_has_allowed_host_and_scheme, urlencode
 from django.views.decorators.cache import cache_control
 from django.views.decorators.http import require_POST
@@ -14,7 +16,13 @@ from django.views.decorators.http import require_POST
 from gr8base.offline import offline_cacheable
 
 from .forms import BulkPhotoForm, CragForm, coordinates_from_photos, process_image
-from .models import Area, Crag, CragComment, CragRating, Feature, InvalidTransition, Photo
+from .models import (
+    Area, Crag, CragComment, CragRating, Feature, InvalidTransition, Notification, Photo,
+    ReviewMessage,
+)
+from .notifications import (
+    CHANNELS, can_moderate, notify_owner, notify_review_message, types_for, wants,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -52,6 +60,27 @@ def with_next(url, target):
 def detail_url(crag, request):
     """The crag page, keeping the return target (used when an action failed)."""
     return with_next(reverse("crags:detail", args=[crag.pk]), return_target(request))
+
+
+def can_see_review(user, crag):
+    """The review thread is private: the crag's submitter and moderators."""
+    return user.is_authenticated and (crag.created_by_id == user.id or can_moderate(user))
+
+
+def review_context(user, crag):
+    """The review thread for the crag page, or None if the user may not see it."""
+    if not can_see_review(user, crag):
+        return None
+    entries = list(crag.review_messages.select_related("author"))
+    can_reply = crag.status in ReviewMessage.OPEN_STATUSES
+    if not entries and not can_reply:
+        return None
+    return {
+        "entries": entries,
+        "can_reply": can_reply,
+        "is_submitter": crag.created_by_id == user.id,
+        "max_length": ReviewMessage.MAX_LENGTH,
+    }
 
 
 def report_photo_coordinates(request, crag):
@@ -360,6 +389,7 @@ def crag_detail(request, pk):
             "can_rate": can_rate,
             "my_rating": my_rating,
             "comments": crag.comments.select_related("user"),
+            "review": review_context(request.user, crag),
             "can_comment": request.user.is_authenticated
             and crag.status == Crag.Status.PUBLISHED,
             "comment_max_length": CragComment.MAX_LENGTH,
@@ -401,8 +431,12 @@ def crag_rate(request, pk):
         CragRating.objects.filter(crag=crag, user=request.user).delete()
         messages.success(request, "Your rating was removed.")
     else:
-        CragRating.objects.update_or_create(
+        _, created = CragRating.objects.update_or_create(
             crag=crag, user=request.user, defaults=values
+        )
+        # email only for a new rating, not every change of it
+        notify_owner(
+            crag.created_by, Notification.Kind.RATING, crag, request.user, email=created
         )
         messages.success(request, "Thanks for rating!")
     return redirect("crags:detail", pk=pk)
@@ -421,6 +455,7 @@ def comment_add(request, pk):
         )
     else:
         CragComment.objects.create(crag=crag, user=request.user, text=text)
+        notify_owner(crag.created_by, Notification.Kind.COMMENT, crag, request.user)
         messages.success(request, "Comment added.")
     return redirect(reverse("crags:detail", args=[crag.pk]) + "#comments")
 
@@ -434,6 +469,75 @@ def comment_delete(request, pk):
     comment.delete()
     messages.success(request, "Comment deleted.")
     return redirect(reverse("crags:detail", args=[comment.crag_id]) + "#comments")
+
+
+@login_required
+def notification_list(request):
+    """Latest notifications; opening the page marks them all as read."""
+    mine = Notification.objects.filter(user=request.user)
+    mine.filter(
+        read_at__lt=timezone.now() - timedelta(days=Notification.KEEP_READ_DAYS)
+    ).delete()
+    notifications = list(
+        mine.exclude(crag__status=Crag.Status.REMOVED).select_related("crag", "actor")[:50]
+    )
+    # after fetching, so this page can still highlight what was new
+    Notification.unread_for(request.user).update(read_at=timezone.now())
+    return render(request, "crags/notifications.html", {"notifications": notifications})
+
+
+@login_required
+@require_POST
+def review_reply(request, pk):
+    """A message in the private review thread (submitter or moderator)."""
+    crag = get_object_or_404(Crag.objects.exclude(status=Crag.Status.REMOVED), pk=pk)
+    if not can_see_review(request.user, crag):
+        raise PermissionDenied
+    back = detail_url(crag, request) + "#review"
+    if crag.status not in ReviewMessage.OPEN_STATUSES:
+        messages.error(request, "This review is closed.")
+        return redirect(back)
+    text = request.POST.get("text", "").strip()
+    if not text:
+        messages.error(request, "Please write a message.")
+    elif len(text) > ReviewMessage.MAX_LENGTH:
+        messages.error(
+            request, f"Messages can be at most {ReviewMessage.MAX_LENGTH} characters."
+        )
+    else:
+        message = ReviewMessage.objects.create(crag=crag, author=request.user, text=text)
+        notify_review_message(message)
+        logger.info("review message crag=%s user=%s", crag.pk, request.user.pk)
+        messages.success(request, "Message sent.")
+    return redirect(back)
+
+
+@login_required
+def notification_settings(request):
+    """Per notification type: in the app and/or by email (crags/notifications.py)."""
+    user = request.user
+    types = types_for(user)
+    if request.method == "POST":
+        saved = dict(user.notification_settings or {})
+        for kind in types:
+            saved[kind.key] = {
+                channel: f"{kind.key}-{channel}" in request.POST for channel in CHANNELS
+            }
+        user.notification_settings = saved
+        user.save(update_fields=["notification_settings"])
+        logger.info("notification settings saved user=%s", user.pk)
+        messages.success(request, "Notification settings saved.")
+        return redirect("notification_settings")
+    rows = [
+        {
+            "key": kind.key,
+            "label": kind.label,
+            "in_app": wants(user, kind.key, "in_app"),
+            "email": wants(user, kind.key, "email"),
+        }
+        for kind in types
+    ]
+    return render(request, "crags/notification_settings.html", {"rows": rows})
 
 
 @login_required
@@ -603,7 +707,9 @@ def crag_edit(request, pk):
                     )
                 )
                 if resubmit and Crag.Status.PENDING in crag.ALLOWED_TRANSITIONS[crag.status]:
-                    crag.transition(Crag.Status.PENDING, request.user)
+                    # optional note for the reviewers, shown in the review thread
+                    note = request.POST.get("review_note", "").strip()[:ReviewMessage.MAX_LENGTH]
+                    crag.transition(Crag.Status.PENDING, request.user, note)
                 if publish and crag.status != Crag.Status.PUBLISHED:
                     try:
                         crag.transition(Crag.Status.PUBLISHED, request.user)
@@ -633,6 +739,10 @@ def crag_edit(request, pk):
                     crag.pk, request.user.pk, crag.status,
                 )
                 if converted:
+                    notify_owner(
+                        crag.created_by, Notification.Kind.PHOTO, crag, request.user,
+                        len(converted),
+                    )
                     logger.info(
                         "photos uploaded crag=%s user=%s count=%s",
                         crag.pk, request.user.pk, len(converted),
@@ -734,6 +844,9 @@ def photo_add(request, pk):
                 logger.info(
                     "photos uploaded crag=%s user=%s count=%s",
                     crag.pk, request.user.pk, len(converted),
+                )
+                notify_owner(
+                    crag.created_by, Notification.Kind.PHOTO, crag, request.user, len(converted)
                 )
                 messages.success(request, f"Uploaded {len(converted)} photo(s).")
                 if photo_coordinates:

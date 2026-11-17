@@ -50,28 +50,31 @@
                 </li>
             </ul>
 
-            <input type="checkbox" id="nav-toggle" class="nav-toggle" aria-label="Open or close menu">
-            <label for="nav-toggle" class="nav-burger" aria-hidden="true">☰</label>
+            <input type="checkbox" id="nav-toggle" class="nav-toggle" aria-label="Open or close menu{% if nav_total_count %} ({{ nav_total_count }} new){% endif %}">
+            <label for="nav-toggle" class="nav-burger" aria-hidden="true">☰{% if nav_total_count %}<span class="nav-count">{{ nav_total_count }}</span>{% endif %}</label>
 
             <ul class="nav-links">
+                <li><a href="{% url 'docs' %}">FAQ</a></li>
                 <li><a href="{% url 'crags:list' %}">Crags</a></li>
-                <li><a href="{% url 'stats:index' %}">Stats</a></li>
-                <li><a href="{% url 'docs' %}">Help</a></li>
 
                 {% if user.is_authenticated %}
-                    <li><a href="{% url 'crags:mine' %}">My crags</a></li>
                     <li><a href="{% url 'crags:create' %}">Add a crag</a></li>
+                    {# name: profile (the hub for My crags, Notifications, Log out); counter: notifications #}
                     {% if user.is_staff or perms.crags.can_publish_crag %}
-                        <li><a href="{% url 'moderation:queue' %}">Moderation</a></li>
+                        <li>
+                            <a href="{% url 'moderation:queue' %}"{% if open_moderation_count %} aria-label="Moderation, {{ open_moderation_count }} crag{{ open_moderation_count|pluralize }} waiting for review"{% endif %}>Moderation{% if open_moderation_count %} <span class="nav-count" aria-hidden="true">{{ open_moderation_count }}</span>{% endif %}</a>
+                        </li>
                     {% endif %}
-                    <li><a href="{% url 'profiles:detail' user.username %}">{{ user.username }}</a></li>
+                    
                     <li>
-                        <form method="post" action="{% url 'account_logout' %}" class="nav-form">
-                            {% csrf_token %}
-                            <button type="submit" class="outline secondary">Log out</button>
-                        </form>
+                        <a href="{% url 'profiles:detail' user.username %}">{{ user.username }}</a>
+                        {% if unread_notification_count %}
+                            <a href="{% url 'notifications' %}" class="nav-count" title="Notifications"
+                               aria-label="{{ unread_notification_count }} unread notification{{ unread_notification_count|pluralize }}">{{ unread_notification_count }}</a>
+                        {% endif %}
                     </li>
                 {% else %}
+                    
                     <li><a href="{% url 'account_login' %}">Log in</a></li>
                     <li>
                         <a href="{% url 'account_signup' %}" role="button" class="outline">Sign up</a>
@@ -111,7 +114,7 @@
                 <strong>gr8base community</strong><br>
                 Find and share climbing crags with a great (or not so great) base, so others can decide whether it suits them.
             <br>
-                <a href="{% url 'docs' %}">Documentation</a>
+                <a href="{% url 'docs' %}">FAQ</a>
                 &middot;
                 <a href="{% url 'doc_page' 'impressum' %}">Legal notice</a>
                 &middot;

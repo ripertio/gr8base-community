@@ -3,7 +3,7 @@ from django.conf.urls.static import static
 from django.contrib import admin
 from django.shortcuts import render
 from django.urls import include, path
-from crags.views import crag_list
+from crags.views import crag_list, notification_list, notification_settings
 from gr8base.views import (
     cookie_consent, doc_index, doc_page, healthz, offline, service_worker,
 )
@@ -14,6 +14,8 @@ urlpatterns = [
     path("", include("accounts.urls")),
     path("crags/", include("crags.urls")),
     path("moderation/", include("crags.moderation_urls")),
+    path("notifications/", notification_list, name="notifications"),
+    path("notifications/settings/", notification_settings, name="notification_settings"),
     path("stats/", include("stats.urls")),
     path("docs/", doc_index, name="docs"),
     path("docs/<slug:slug>/", doc_page, name="doc_page"),

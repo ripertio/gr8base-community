@@ -15,3 +15,6 @@ class User(AbstractUser):
         default=False,
         help_text="Allow anyone to see your profile and your public crags.",
     )
+    # Channels per notification type, e.g. {"COMMENT": {"in_app": true, "email": false}}.
+    # Only what the user changed is stored; crags/notifications.py has the defaults.
+    notification_settings = models.JSONField(default=dict, blank=True)

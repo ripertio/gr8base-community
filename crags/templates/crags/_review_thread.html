@@ -1,0 +1,45 @@
+{# Private review conversation (crags/views.py review_context): submitter and moderators only. #}
+{# Open review: expanded with the reply form. Closed (published, rejected): collapsed history. #}
+{% if review.can_reply %}
+<section id="review" class="review-thread">
+    <h2>Review</h2>
+{% else %}
+<details id="review" class="review-thread review-closed">
+    <summary>Review history <small>({{ review.entries|length }} step{{ review.entries|length|pluralize }})</small></summary>
+{% endif %}
+    <p><small>Only {% if review.is_submitter %}you and the moderators{% else %}the submitter and the moderators{% endif %} see this conversation.</small></p>
+
+    {% if review.entries %}
+        <ol class="review-entries">
+            {% for entry in review.entries %}
+                {% if entry.kind == "MESSAGE" %}
+                    <li class="review-message{% if entry.author_id == crag.created_by_id %} from-submitter{% endif %}">
+                        <small><strong>{{ entry.author_name }}</strong>{% if entry.author_id == crag.created_by_id %} (submitter){% endif %} · <time datetime="{{ entry.created_at|date:'c' }}">{{ entry.created_at|date:"j M Y, H:i" }}</time></small>
+                        <p>{{ entry.text|linebreaksbr }}</p>
+                    </li>
+                {% else %}
+                    <li class="review-event review-{{ entry.kind|lower }}">
+                        <small><strong>{{ entry.get_kind_display }}</strong> by {{ entry.author_name }} · <time datetime="{{ entry.created_at|date:'c' }}">{{ entry.created_at|date:"j M Y, H:i" }}</time></small>
+                        {% if entry.text %}<p>{{ entry.text|linebreaksbr }}</p>{% endif %}
+                    </li>
+                {% endif %}
+            {% endfor %}
+        </ol>
+    {% endif %}
+
+    {% if review.can_reply %}
+        <form method="post" action="{% url 'crags:review_reply' crag.pk %}">
+            {% csrf_token %}
+            {% if next %}<input type="hidden" name="next" value="{{ next }}">{% endif %}
+            <label for="review-text">{% if review.is_submitter %}Reply to the moderators{% else %}Reply to the submitter{% endif %}</label>
+            <textarea id="review-text" name="text" rows="3" maxlength="{{ review.max_length }}" required></textarea>
+            <button type="submit">Send</button>
+        </form>
+    {% else %}
+        <p><small>This review is closed.</small></p>
+    {% endif %}
+{% if review.can_reply %}
+</section>
+{% else %}
+</details>
+{% endif %}

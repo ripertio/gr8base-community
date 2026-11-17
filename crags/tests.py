@@ -26,7 +26,7 @@ from .forms import (
 )
 from .models import (
     THUMBNAIL_EDGE, Area, Crag, InvalidTransition, CragComment, CragRating, Feature,
-    Guidebook, Photo,
+    Guidebook, Notification, Photo, ReviewMessage,
 )
 
 
@@ -2293,7 +2293,8 @@ class ModerationReturnTests(CragTestBase):
         response = self.client.get(self.detail(self.pending, self.QUEUE))
         escaped = self.QUEUE.replace("&", "&amp;")
         self.assertContains(response, f'<a href="{escaped}">← Back</a>', html=True)
-        self.assertContains(response, f'name="next" value="{escaped}"', count=3)  # publish, reject, return
+        # publish, reject, return and the review reply
+        self.assertContains(response, f'name="next" value="{escaped}"', count=4)
         edit = reverse("crags:edit", args=[self.pending.pk])
         self.assertContains(response, f"{edit}?{urlencode({'next': self.QUEUE})}")
 
@@ -2661,3 +2662,703 @@ class CragListSortTests(CragTestBase):
         )
         _, response = self.order(orientation="S")
         self.assertEqual(response.context["clear_filters_url"], reverse("crags:list"))
+
+
+
+class InAppNotificationTests(CragTestBase):
+    """Notifications for a crag's creator, and the counters in the navigation."""
+
+    def setUp(self):
+        media_root = tempfile.TemporaryDirectory()
+        self.addCleanup(media_root.cleanup)
+        settings = override_settings(MEDIA_ROOT=media_root.name)
+        settings.enable()
+        self.addCleanup(settings.disable)
+
+    def manager(self):
+        user = User.objects.create_user("mgr", "m@example.com", "pw", is_staff=True)
+        user.groups.add(Group.objects.get(name="Crag Managers"))
+        return user
+
+    def alices(self):
+        return list(Notification.objects.filter(user=self.alice))
+
+    def comment(self, user, crag=None):
+        self.client.force_login(user)
+        self.client.post(
+            reverse("crags:comment_add", args=[(crag or self.published).pk]), {"text": "Nice!"}
+        )
+
+    def rate(self, user, stars="4"):
+        self.client.force_login(user)
+        self.client.post(
+            reverse("crags:rate", args=[self.published.pk]),
+            {"rating_babies": stars, "rating_ages_2_4": "", "rating_ages_5_plus": ""},
+        )
+
+    def add_photos(self, user, crag, count=1):
+        self.client.force_login(user)
+        self.client.post(
+            reverse("crags:photo_add", args=[crag.pk]),
+            {"category": Photo.Category.CRAG,
+             "images": [image_upload(f"p{i}.jpg") for i in range(count)]},
+        )
+
+    # --- events ---------------------------------------------------------------
+
+    def test_comment_notifies_the_creator(self):
+        self.comment(self.bob)
+        [note] = self.alices()
+        self.assertEqual(note.kind, Notification.Kind.COMMENT)
+        self.assertEqual(note.actor, self.bob)
+        self.assertEqual(note.text, "bob commented on \u201cPublic\u201d.")
+        self.assertEqual(note.url, reverse("crags:detail", args=[self.published.pk]) + "#comments")
+
+    def test_own_comment_does_not_notify(self):
+        self.comment(self.alice)
+        self.assertEqual(self.alices(), [])
+
+    def test_every_comment_is_its_own_notification(self):
+        self.comment(self.bob)
+        self.comment(self.bob)
+        self.assertEqual(len(self.alices()), 2)
+
+    def test_rating_notifies_once_while_unread(self):
+        self.rate(self.bob, "4")
+        self.rate(self.bob, "5")  # changed rating: same unread notification
+        [note] = self.alices()
+        self.assertEqual(note.kind, Notification.Kind.RATING)
+        self.assertEqual(note.text, "bob rated \u201cPublic\u201d.")
+
+    def test_removing_a_rating_does_not_notify(self):
+        self.rate(self.bob, "4")
+        Notification.objects.all().delete()
+        self.rate(self.bob, "")
+        self.assertEqual(self.alices(), [])
+
+    def test_photos_by_someone_else_are_counted_and_merged(self):
+        self.add_photos(self.staff, self.draft, count=2)
+        self.add_photos(self.staff, self.draft, count=1)
+        [note] = self.alices()
+        self.assertEqual((note.kind, note.count), (Notification.Kind.PHOTO, 3))
+        self.assertEqual(note.text, "staff added 3 photos to \u201cDraft entry\u201d.")
+
+    def test_single_photo_text(self):
+        self.add_photos(self.staff, self.draft)
+        self.assertEqual(self.alices()[0].text, "staff added a photo to \u201cDraft entry\u201d.")
+
+    def test_own_photos_do_not_notify(self):
+        self.add_photos(self.alice, self.draft)
+        self.assertEqual(self.alices(), [])
+
+    def test_photos_uploaded_in_the_edit_form_notify(self):
+        self.client.force_login(self.staff)
+        self.client.post(
+            reverse("crags:edit", args=[self.draft.pk]),
+            {**form_data(self.area, name="Draft entry"),
+             "category": Photo.Category.CRAG, "images": [image_upload("e.jpg")]},
+        )
+        self.assertEqual([n.kind for n in self.alices()], [Notification.Kind.PHOTO])
+
+    def test_publish_and_return_notify_the_submitter(self):
+        manager = self.manager()
+        self.pending.transition(Crag.Status.NEEDS_CHANGES, manager, "Please add the approach.")
+        self.pending.transition(Crag.Status.PENDING, self.alice)
+        self.pending.transition(Crag.Status.PUBLISHED, manager)
+        kinds = [n.kind for n in Notification.objects.filter(user=self.alice).order_by("pk")]
+        self.assertEqual(kinds, [Notification.Kind.CHANGES_REQUESTED, Notification.Kind.PUBLISHED])
+        texts = [n.text for n in Notification.objects.filter(user=self.alice).order_by("pk")]
+        self.assertIn("Changes were requested", texts[0])
+        self.assertIn("was published", texts[1])
+
+    def test_publishing_your_own_crag_does_not_notify_you(self):
+        manager = self.manager()
+        crag = Crag.objects.create(
+            name="Mine", area=self.area, created_by=manager, status=Crag.Status.PENDING
+        )
+        crag.transition(Crag.Status.PUBLISHED, manager)
+        self.assertFalse(Notification.objects.filter(user=manager).exists())
+
+    def test_inactive_creator_gets_nothing(self):
+        User.objects.filter(pk=self.alice.pk).update(is_active=False)
+        self.alice.refresh_from_db()
+        from .notifications import notify_in_app
+        notify_in_app(self.alice, Notification.Kind.COMMENT, self.published, self.bob)
+        self.assertEqual(self.alices(), [])
+
+    # --- counter, page --------------------------------------------------------
+
+    def test_counter_next_to_username_links_to_notifications(self):
+        self.comment(self.bob)
+        self.comment(self.bob)
+        self.client.force_login(self.alice)
+        response = self.client.get(reverse("crags:list"))
+        self.assertContains(response, f'href="{reverse("notifications")}" class="nav-count"')
+        self.assertContains(response, 'aria-label="2 unread notifications"')
+
+    def test_header_is_flat_and_profile_is_the_hub(self):
+        self.client.force_login(self.alice)
+        content = self.client.get(reverse("crags:list")).content.decode()
+        nav = content[content.index('<ul class="nav-links">'):content.index("</nav>")]
+        self.assertNotIn("<details", nav)  # no account dropdown
+        self.assertNotIn(reverse("crags:mine"), nav)
+        self.assertNotIn(reverse("account_logout"), nav)
+        self.assertIn(f'<a href="{reverse("crags:create")}">Add a crag</a>', nav)
+        self.assertIn(f'<a href="{reverse("profiles:detail", args=["alice"])}">alice</a>', nav)
+
+    def test_profile_has_my_crags_notifications_and_log_out(self):
+        self.comment(self.bob)
+        self.client.force_login(self.alice)
+        content = self.client.get(reverse("profiles:detail", args=["alice"])).content.decode()
+        hub = content[content.index('<div class="profile-links">'):]
+        hub = hub[:hub.index("</div>")]
+        self.assertIn(reverse("crags:mine"), hub)
+        self.assertIn(f'<a href="{reverse("notifications")}" aria-label="Notifications, 1 unread">', hub)
+        self.assertIn(f'action="{reverse("account_logout")}"', hub)
+
+    def test_anonymous_nav_is_unchanged(self):
+        content = self.client.get(reverse("crags:list")).content.decode()
+        self.assertIn(reverse("account_login"), content)
+        self.assertNotIn(reverse("crags:create"), content)
+
+    def test_no_counter_without_unread(self):
+        self.client.force_login(self.alice)
+        self.assertNotContains(self.client.get(reverse("crags:list")), "nav-count")
+
+    def test_page_lists_newest_first_and_marks_read(self):
+        self.comment(self.bob)
+        self.rate(self.bob)
+        self.client.force_login(self.alice)
+        response = self.client.get(reverse("notifications"))
+        texts = [n.text for n in response.context["notifications"]]
+        self.assertEqual(texts, ["bob rated \u201cPublic\u201d.", "bob commented on \u201cPublic\u201d."])
+        self.assertContains(response, 'class="is-unread"', count=2)
+        self.assertNotContains(response, "nav-count")  # read on this very page
+        self.assertFalse(Notification.unread_for(self.alice).exists())
+        # second visit: nothing new any more
+        self.assertNotContains(self.client.get(reverse("notifications")), "is-unread")
+
+    def test_page_shows_only_own_notifications(self):
+        self.comment(self.bob)
+        self.client.force_login(self.bob)
+        response = self.client.get(reverse("notifications"))
+        self.assertEqual(list(response.context["notifications"]), [])
+        self.assertContains(response, "No notifications yet.")
+        self.assertTrue(Notification.unread_for(self.alice).exists())  # untouched
+
+    def test_page_requires_login(self):
+        response = self.client.get(reverse("notifications"))
+        self.assertEqual(response.status_code, 302)
+
+
+    def test_removed_crag_notifications_are_hidden(self):
+        self.comment(self.bob)
+        Crag.objects.filter(pk=self.published.pk).update(status=Crag.Status.REMOVED)
+        self.assertFalse(Notification.unread_for(self.alice).exists())
+        self.client.force_login(self.alice)
+        self.assertEqual(list(self.client.get(reverse("notifications")).context["notifications"]), [])
+
+    def test_old_read_notifications_are_deleted_old_unread_kept(self):
+        long_ago = timezone.now() - timedelta(days=Notification.KEEP_READ_DAYS + 1)
+        old_read = Notification.objects.create(
+            user=self.alice, kind=Notification.Kind.RATING, crag=self.published,
+            actor=self.bob, created_at=long_ago, read_at=long_ago,
+        )
+        old_unread = Notification.objects.create(
+            user=self.alice, kind=Notification.Kind.COMMENT, crag=self.published,
+            actor=self.bob, created_at=long_ago,
+        )
+        self.client.force_login(self.alice)
+        self.client.get(reverse("notifications"))
+        self.assertFalse(Notification.objects.filter(pk=old_read.pk).exists())
+        self.assertTrue(Notification.objects.filter(pk=old_unread.pk).exists())
+
+    def test_deleted_actor_becomes_someone(self):
+        self.comment(self.bob)
+        self.bob.delete()
+        self.assertEqual(self.alices()[0].text, "Someone commented on \u201cPublic\u201d.")
+
+    def test_deleted_recipient_takes_notifications_along(self):
+        self.comment(self.bob)
+        self.alice.delete()
+        self.assertFalse(Notification.objects.exists())
+
+    def test_nav_counts_cost_at_most_two_queries(self):
+        manager = self.manager()
+        self.client.force_login(manager)
+        self.client.get(reverse("docs"))  # warm up session/permission caches
+        from .context_processors import nav_counts
+        request = self.client.get(reverse("docs")).wsgi_request
+        with self.assertNumQueries(2):
+            nav_counts(request)
+
+    # --- moderation counter ---------------------------------------------------
+
+    def test_moderation_counter_shows_crags_waiting_for_review(self):
+        Crag.objects.create(
+            name="Another", area=self.area, created_by=self.bob, status=Crag.Status.PENDING
+        )
+        self.client.force_login(self.manager())
+        response = self.client.get(reverse("crags:list"))
+        self.assertContains(response, 'Moderation <span class="nav-count" aria-hidden="true">2</span>')
+        self.assertContains(response, 'aria-label="Moderation, 2 crags waiting for review"')
+
+    def test_no_moderation_counter_when_nothing_waits(self):
+        Crag.objects.filter(status=Crag.Status.PENDING).update(status=Crag.Status.DRAFT)
+        self.client.force_login(self.manager())
+        response = self.client.get(reverse("crags:list"))
+        self.assertContains(response, ">Moderation</a>")
+        self.assertNotContains(response, "nav-count")
+
+    def test_regular_users_see_no_moderation_count(self):
+        self.client.force_login(self.bob)
+        response = self.client.get(reverse("crags:list"))
+        self.assertNotIn("open_moderation_count", response.context)
+        self.assertNotContains(response, "Moderation")
+
+    def test_burger_shows_total_of_both_counters(self):
+        self.comment(self.bob)  # 1 unread for alice
+        alice_manager = self.alice
+        alice_manager.groups.add(Group.objects.get(name="Crag Managers"))  # 1 pending crag
+        self.client.force_login(alice_manager)
+        response = self.client.get(reverse("crags:list"))
+        self.assertEqual(response.context["nav_total_count"], 2)
+        self.assertContains(response, '☰<span class="nav-count">2</span>')
+        self.assertContains(response, 'aria-label="Open or close menu (2 new)"')
+
+    def test_burger_shows_unread_only_for_regular_users(self):
+        self.comment(self.bob)
+        self.client.force_login(self.alice)
+        response = self.client.get(reverse("crags:list"))
+        self.assertContains(response, '☰<span class="nav-count">1</span>')
+
+    def test_no_burger_count_when_nothing_is_new(self):
+        self.client.force_login(self.bob)
+        response = self.client.get(reverse("crags:list"))
+        self.assertContains(response, 'aria-label="Open or close menu">')
+        self.assertNotContains(response, "nav-count")
+
+    def test_privacy_page_describes_notifications(self):
+        response = self.client.get("/docs/privacy/")
+        self.assertContains(response, "Notifications that are read are deleted after 180 days")
+
+
+class NotificationSettingsTests(CragTestBase):
+    """Per type: in the app and/or by email (crags/notifications.py NOTIFICATION_TYPES)."""
+
+    def setUp(self):
+        media_root = tempfile.TemporaryDirectory()
+        self.addCleanup(media_root.cleanup)
+        settings = override_settings(MEDIA_ROOT=media_root.name)
+        settings.enable()
+        self.addCleanup(settings.disable)
+
+    def manager(self, username="mgr"):
+        user = User.objects.create_user(username, f"{username}@example.com", "pw", is_staff=True)
+        user.groups.add(Group.objects.get(name="Crag Managers"))
+        return user
+
+    def set(self, user, **channels):
+        """set(alice, COMMENT={"email": True})"""
+        user.notification_settings = {**user.notification_settings, **channels}
+        user.save()
+        user.refresh_from_db()
+
+    def comment(self, user=None):
+        self.client.force_login(user or self.bob)
+        self.client.post(reverse("crags:comment_add", args=[self.published.pk]), {"text": "Nice!"})
+
+    def rate(self, stars):
+        self.client.force_login(self.bob)
+        self.client.post(
+            reverse("crags:rate", args=[self.published.pk]),
+            {"rating_babies": stars, "rating_ages_2_4": "", "rating_ages_5_plus": ""},
+        )
+
+    # --- defaults ---------------------------------------------------------------
+
+    def test_defaults_keep_the_old_behaviour(self):
+        from .notifications import wants
+        expected = {
+            "COMMENT": (True, False), "RATING": (True, False), "PHOTO": (True, False),
+            "PUBLISHED": (True, True), "CHANGES_REQUESTED": (True, True),
+            "REVIEW_MESSAGE": (True, True), "REVIEW_WAITING": (True, True),
+        }
+        for key, (in_app, email) in expected.items():
+            self.assertEqual(wants(self.alice, key, "in_app"), in_app, key)
+            self.assertEqual(wants(self.alice, key, "email"), email, key)
+
+    def test_comment_by_default_in_app_but_no_email(self):
+        self.comment()
+        self.assertEqual(Notification.objects.filter(user=self.alice).count(), 1)
+        self.assertEqual(mail.outbox, [])
+
+    # --- page ---------------------------------------------------------------------
+
+    def test_page_shows_a_row_per_type_with_two_channels(self):
+        self.client.force_login(self.alice)
+        response = self.client.get(reverse("notification_settings"))
+        keys = [row["key"] for row in response.context["rows"]]
+        self.assertEqual(
+            keys, ["COMMENT", "RATING", "PHOTO", "PUBLISHED", "CHANGES_REQUESTED", "REVIEW_MESSAGE"]
+        )
+        self.assertContains(response, 'name="COMMENT-in_app" aria-label="Someone comments on one of my crags: in the app" checked')
+        self.assertContains(response, 'name="COMMENT-email" aria-label="Someone comments on one of my crags: by email">')
+        self.assertContains(response, "<th scope=\"col\">By email</th>", html=False)
+
+    def test_moderators_also_get_the_review_row(self):
+        self.client.force_login(self.manager())
+        response = self.client.get(reverse("notification_settings"))
+        self.assertEqual(response.context["rows"][-1]["key"], "REVIEW_WAITING")
+
+    def test_saving_stores_ticked_and_unticked_channels(self):
+        self.client.force_login(self.alice)
+        response = self.client.post(
+            reverse("notification_settings"),
+            {"COMMENT-email": "on", "PUBLISHED-in_app": "on", "PUBLISHED-email": "on"},
+            follow=True,
+        )
+        self.assertContains(response, "Notification settings saved.")
+        self.alice.refresh_from_db()
+        saved = self.alice.notification_settings
+        self.assertEqual(saved["COMMENT"], {"in_app": False, "email": True})
+        self.assertEqual(saved["RATING"], {"in_app": False, "email": False})
+        self.assertEqual(saved["PUBLISHED"], {"in_app": True, "email": True})
+        self.assertNotIn("REVIEW_WAITING", saved)  # not a moderator: row not shown, not touched
+
+    def test_saving_keeps_hidden_moderator_setting(self):
+        self.set(self.alice, REVIEW_WAITING={"in_app": False, "email": False})
+        self.client.force_login(self.alice)
+        self.client.post(reverse("notification_settings"), {})
+        self.alice.refresh_from_db()
+        self.assertEqual(self.alice.notification_settings["REVIEW_WAITING"], {"in_app": False, "email": False})
+
+    def test_page_requires_login(self):
+        self.assertEqual(self.client.get(reverse("notification_settings")).status_code, 302)
+
+    def test_hint_without_email_address(self):
+        User.objects.filter(pk=self.alice.pk).update(email="")
+        self.client.force_login(self.alice)
+        self.assertContains(self.client.get(reverse("notification_settings")), "You have no email address yet")
+
+    def test_profile_and_notifications_page_link_to_settings(self):
+        self.client.force_login(self.alice)
+        link = f'href="{reverse("notification_settings")}"'
+        self.assertContains(self.client.get(reverse("profiles:detail", args=["alice"])), link)
+        self.assertContains(self.client.get(reverse("notifications")), link)
+
+    # --- in the app -----------------------------------------------------------------
+
+    def test_in_app_off_creates_no_notification(self):
+        self.set(self.alice, COMMENT={"in_app": False, "email": False})
+        self.comment()
+        self.assertFalse(Notification.objects.filter(user=self.alice).exists())
+
+    def test_moderation_counter_can_be_switched_off(self):
+        manager = self.manager()
+        self.client.force_login(manager)
+        self.assertContains(self.client.get(reverse("crags:list")), 'class="nav-count"')
+        self.set(manager, REVIEW_WAITING={"in_app": False, "email": True})
+        response = self.client.get(reverse("crags:list"))
+        self.assertNotIn("open_moderation_count", response.context)
+        self.assertContains(response, ">Moderation</a>")  # the link itself stays
+
+    # --- email ----------------------------------------------------------------------
+
+    def test_comment_email_when_switched_on(self):
+        self.set(self.alice, COMMENT={"in_app": True, "email": True})
+        self.comment()
+        [message] = mail.outbox
+        self.assertEqual(message.to, ["alice@example.com"])
+        self.assertEqual(message.subject, "New comment: “Public”")
+        self.assertIn("bob commented on “Public”.", message.body)
+        self.assertIn(reverse("crags:detail", args=[self.published.pk]) + "#comments", message.body)
+        self.assertIn(reverse("notification_settings"), message.body)
+
+    def test_email_only_switch_works_without_in_app(self):
+        self.set(self.alice, COMMENT={"in_app": False, "email": True})
+        self.comment()
+        self.assertEqual(len(mail.outbox), 1)
+        self.assertFalse(Notification.objects.filter(user=self.alice).exists())
+
+    def test_no_email_for_own_comment(self):
+        self.set(self.alice, COMMENT={"in_app": True, "email": True})
+        self.comment(self.alice)
+        self.assertEqual(mail.outbox, [])
+
+    def test_rating_email_only_for_a_new_rating(self):
+        self.set(self.alice, RATING={"in_app": True, "email": True})
+        self.rate("4")
+        self.rate("5")  # changed: no second email
+        self.assertEqual(len(mail.outbox), 1)
+        self.assertIn("bob rated “Public”.", mail.outbox[0].body)
+
+    def test_photo_email_counts_the_photos(self):
+        self.set(self.alice, PHOTO={"in_app": True, "email": True})
+        self.client.force_login(self.staff)
+        self.client.post(
+            reverse("crags:photo_add", args=[self.draft.pk]),
+            {"category": Photo.Category.CRAG, "images": [image_upload("a.jpg"), image_upload("b.jpg")]},
+        )
+        [message] = mail.outbox
+        self.assertIn("staff added 2 photos to “Draft entry”.", message.body)
+
+    def test_review_result_email_can_be_switched_off_in_app_stays(self):
+        self.set(self.alice, PUBLISHED={"in_app": True, "email": False})
+        self.pending.transition(Crag.Status.PUBLISHED, self.manager())
+        self.assertEqual(mail.outbox, [])
+        self.assertTrue(Notification.objects.filter(user=self.alice, kind="PUBLISHED").exists())
+
+    def test_changes_requested_email_still_sent_by_default(self):
+        self.pending.transition(Crag.Status.NEEDS_CHANGES, self.manager(), "Please add the approach.")
+        self.assertEqual([m.to for m in mail.outbox], [["alice@example.com"]])
+
+    def test_moderator_review_email_can_be_switched_off(self):
+        keen, quiet = self.manager("keen"), self.manager("quiet")
+        self.set(quiet, REVIEW_WAITING={"in_app": True, "email": False})
+        self.draft.transition(Crag.Status.PENDING, self.alice)
+        recipients = sorted(address for m in mail.outbox for address in m.to)
+        self.assertIn("keen@example.com", recipients)
+        self.assertNotIn("quiet@example.com", recipients)
+
+    def test_privacy_page_mentions_the_settings(self):
+        self.assertContains(self.client.get("/docs/privacy/"), "notification settings")
+
+
+class ReviewThreadTests(CragTestBase):
+    """Private review conversation between the submitter and moderators."""
+
+    def setUp(self):
+        self.manager = User.objects.create_user("mgr", "mgr@example.com", "pw", is_staff=True)
+        self.manager.groups.add(Group.objects.get(name="Crag Managers"))
+
+    def send_back(self, crag=None, reason="Please add the approach details."):
+        crag = crag or self.pending
+        crag.transition(Crag.Status.NEEDS_CHANGES, self.manager, reason)
+        mail.outbox.clear()
+        return crag
+
+    def reply(self, user, text="Which approach do you mean?", crag=None):
+        self.client.force_login(user)
+        return self.client.post(
+            reverse("crags:review_reply", args=[(crag or self.pending).pk]), {"text": text}
+        )
+
+    def entries(self, crag=None):
+        return list((crag or self.pending).review_messages.values_list("kind", "author__username", "text"))
+
+    # --- the story of the review ---------------------------------------------------
+
+    def test_transitions_write_review_entries(self):
+        crag = self.draft
+        crag.transition(Crag.Status.PENDING, self.alice, "First try")
+        crag.transition(Crag.Status.NEEDS_CHANGES, self.manager, "Please add the approach details.")
+        crag.transition(Crag.Status.PENDING, self.alice)
+        crag.transition(Crag.Status.PUBLISHED, self.manager)
+        self.assertEqual(self.entries(crag), [
+            ("SUBMITTED", "alice", "First try"),
+            ("RETURNED", "mgr", "Please add the approach details."),
+            ("SUBMITTED", "alice", ""),
+            ("PUBLISHED", "mgr", ""),
+        ])
+
+    def test_rejection_and_removal(self):
+        self.pending.transition(Crag.Status.REJECTED, self.manager)
+        self.assertEqual(self.entries()[-1][:2], ("REJECTED", "mgr"))
+        before = len(self.entries(self.draft))
+        self.draft.transition(Crag.Status.REMOVED, self.alice)
+        self.assertEqual(len(self.entries(self.draft)), before)  # not a review step
+
+    def test_resubmit_note_from_the_edit_form(self):
+        self.send_back()
+        self.client.force_login(self.alice)
+        self.client.post(
+            reverse("crags:edit", args=[self.pending.pk]),
+            form_data(self.area, name="Waiting", action="submit", review_note="Added the approach."),
+        )
+        self.pending.refresh_from_db()
+        self.assertEqual(self.pending.status, Crag.Status.PENDING)
+        self.assertEqual(self.entries()[-1], ("SUBMITTED", "alice", "Added the approach."))
+
+    def test_edit_form_offers_note_only_when_changes_were_requested(self):
+        self.client.force_login(self.alice)
+        edit = reverse("crags:edit", args=[self.pending.pk])
+        self.assertNotContains(self.client.get(edit), 'name="review_note"')
+        self.send_back()
+        self.assertContains(self.client.get(edit), 'name="review_note"')
+
+    # --- replying -------------------------------------------------------------------
+
+    def test_submitter_replies_and_moderator_answers(self):
+        self.send_back()
+        self.reply(self.alice, "Which approach do you mean?")
+        self.reply(self.manager, "The one from the parking.")
+        self.assertEqual(self.entries()[-2:], [
+            ("MESSAGE", "alice", "Which approach do you mean?"),
+            ("MESSAGE", "mgr", "The one from the parking."),
+        ])
+
+    def test_others_cannot_reply_or_see_the_thread(self):
+        self.send_back()
+        self.assertEqual(self.reply(self.bob).status_code, 403)
+        # resubmitted: the crag is public again (pending), its review is not
+        self.pending.transition(Crag.Status.PENDING, self.alice, "Added it.")
+        self.client.force_login(self.bob)
+        response = self.client.get(reverse("crags:detail", args=[self.pending.pk]))
+        self.assertNotContains(response, 'id="review"')
+        self.assertNotContains(response, "Please add the approach details.")
+        self.client.logout()
+        self.assertNotContains(
+            self.client.get(reverse("crags:detail", args=[self.pending.pk])), 'id="review"'
+        )
+
+    def test_reply_needs_login(self):
+        response = self.client.post(reverse("crags:review_reply", args=[self.pending.pk]), {"text": "x"})
+        self.assertEqual(response.status_code, 302)
+        self.assertFalse(ReviewMessage.objects.filter(kind="MESSAGE").exists())
+
+    def test_closed_after_publishing(self):
+        self.send_back()
+        self.pending.transition(Crag.Status.PENDING, self.alice)
+        self.pending.transition(Crag.Status.PUBLISHED, self.manager)
+        response = self.reply(self.alice)
+        self.assertRedirects(response, reverse("crags:detail", args=[self.pending.pk]) + "#review",
+                             fetch_redirect_response=False)
+        self.assertFalse(ReviewMessage.objects.filter(kind="MESSAGE").exists())
+        page = self.client.get(reverse("crags:detail", args=[self.pending.pk]))
+        self.assertContains(page, "This review is closed.")
+        self.assertNotContains(page, 'id="review-text"')
+        # collapsed history: RETURNED, SUBMITTED, PUBLISHED
+        self.assertContains(page, '<details id="review" class="review-thread review-closed">')
+        self.assertContains(page, "Review history <small>(3 steps)</small>")
+        self.assertNotContains(page, '<section id="review"')
+
+    def test_open_review_is_expanded(self):
+        self.send_back()
+        self.client.force_login(self.alice)
+        page = self.client.get(reverse("crags:detail", args=[self.pending.pk]))
+        self.assertContains(page, '<section id="review" class="review-thread">')
+        self.assertNotContains(page, "Review history")
+
+    def test_empty_and_too_long_messages_are_refused(self):
+        self.send_back()
+        self.reply(self.alice, "   ")
+        self.reply(self.alice, "x" * (ReviewMessage.MAX_LENGTH + 1))
+        self.assertFalse(ReviewMessage.objects.filter(kind="MESSAGE").exists())
+
+    def test_thread_on_the_crag_page(self):
+        self.send_back()
+        self.reply(self.alice, "Which approach do you mean?")
+        response = self.client.get(reverse("crags:detail", args=[self.pending.pk]))
+        self.assertContains(response, 'id="review"')
+        self.assertContains(response, "Please add the approach details.")
+        self.assertContains(response, "Which approach do you mean?")
+        self.assertContains(response, "Only you and the moderators see this conversation.")
+        self.assertContains(response, "Reply to the moderators")
+        self.client.force_login(self.manager)
+        response = self.client.get(reverse("crags:detail", args=[self.pending.pk]))
+        self.assertContains(response, "Reply to the submitter")
+
+    def test_message_text_is_escaped(self):
+        self.send_back()
+        self.reply(self.alice, "<script>alert(1)</script>")
+        response = self.client.get(reverse("crags:detail", args=[self.pending.pk]))
+        self.assertNotContains(response, "<script>alert(1)</script>")
+        self.assertContains(response, "&lt;script&gt;")
+
+    def test_deleted_author_shows_as_someone(self):
+        self.send_back()
+        self.reply(self.alice)
+        self.manager.delete()
+        self.client.force_login(self.alice)
+        response = self.client.get(reverse("crags:detail", args=[self.pending.pk]))
+        self.assertContains(response, "<strong>Changes requested</strong> by Someone")
+
+    # --- notifications ----------------------------------------------------------------
+
+    def test_submitter_reply_notifies_the_reviewing_moderator(self):
+        self.send_back()
+        self.reply(self.alice, "Which approach\ndo you mean?")
+        note = Notification.objects.get(user=self.manager, kind=Notification.Kind.REVIEW_MESSAGE)
+        self.assertEqual(note.text, "alice wrote in the review of “Waiting”.")
+        self.assertTrue(note.url.endswith("#review"))
+        [message] = mail.outbox
+        self.assertEqual(message.to, ["mgr@example.com"])
+        self.assertIn("> Which approach\n> do you mean?", message.body)
+        self.assertFalse(Notification.objects.filter(user=self.alice, kind="REVIEW_MESSAGE").exists())
+
+    def test_moderator_reply_notifies_the_submitter(self):
+        self.send_back()
+        self.reply(self.manager, "Any questions?")
+        self.assertTrue(Notification.objects.filter(user=self.alice, kind="REVIEW_MESSAGE").exists())
+        self.assertEqual([m.to for m in mail.outbox], [["alice@example.com"]])
+
+    def test_other_moderators_join_by_writing(self):
+        other = User.objects.create_user("mgr2", "mgr2@example.com", "pw", is_staff=True)
+        other.groups.add(Group.objects.get(name="Crag Managers"))
+        self.send_back()
+        self.reply(other, "I can help too.")
+        mail.outbox.clear()
+        self.reply(self.alice, "Thanks!")
+        self.assertEqual(sorted(m.to[0] for m in mail.outbox), ["mgr2@example.com", "mgr@example.com"])
+
+    def test_review_message_notifications_follow_the_settings(self):
+        self.manager.notification_settings = {"REVIEW_MESSAGE": {"in_app": True, "email": False}}
+        self.manager.save()
+        self.send_back()
+        self.reply(self.alice)
+        self.assertEqual(mail.outbox, [])
+        self.assertTrue(Notification.objects.filter(user=self.manager, kind="REVIEW_MESSAGE").exists())
+
+    # --- moderation queue -------------------------------------------------------------
+
+    def test_queue_lists_crags_waiting_for_an_answer(self):
+        self.send_back()
+        self.client.force_login(self.manager)
+        queue = reverse("moderation:queue")
+        self.assertNotContains(self.client.get(queue), "Waiting for your answer")
+        self.reply(self.alice)
+        self.client.force_login(self.manager)
+        response = self.client.get(queue)  # default filter: Pending only
+        self.assertContains(response, "Waiting for your answer")
+        self.assertContains(response, f'{reverse("crags:detail", args=[self.pending.pk])}?next=')
+        # answered: gone again
+        self.reply(self.manager, "The one from the parking.")
+        self.client.force_login(self.manager)
+        self.assertNotContains(self.client.get(queue), "Waiting for your answer")
+
+    def test_reply_chip_in_the_list(self):
+        self.send_back()
+        self.reply(self.alice)
+        self.client.force_login(self.manager)
+        response = self.client.get(reverse("moderation:queue"), {"status": "NEEDS_CHANGES"})
+        self.assertContains(response, "Reply from submitter")
+
+    def test_a_reply_is_counted_once_for_the_moderator(self):
+        Crag.objects.filter(status=Crag.Status.PENDING).update(status=Crag.Status.DRAFT)
+        crag = Crag.objects.create(name="Back", area=self.area, created_by=self.alice,
+                                   status=Crag.Status.PENDING)
+        self.send_back(crag)
+        self.client.force_login(self.manager)
+        self.assertEqual(self.client.get(reverse("crags:list")).context["open_moderation_count"], 0)
+        self.reply(self.alice, crag=crag)
+        self.client.force_login(self.manager)
+        context = self.client.get(reverse("crags:list")).context
+        # the personal notification counts it; the Moderation counter does not
+        self.assertEqual(context["unread_notification_count"], 1)
+        self.assertEqual(context["open_moderation_count"], 0)
+        self.assertEqual(context["nav_total_count"], 1)
+
+    def test_existing_reason_moves_into_the_thread(self):
+        from importlib import import_module
+        migration = import_module("crags.migrations.0024_review_message_from_reason")
+        Crag.objects.filter(pk=self.pending.pk).update(
+            status=Crag.Status.NEEDS_CHANGES, review_reason="Old reason", reviewed_by=self.manager
+        )
+        from django.apps import apps
+        migration.reasons_to_messages(apps, None)
+        migration.reasons_to_messages(apps, None)  # runs once per crag only
+        self.assertEqual(self.entries(), [("RETURNED", "mgr", "Old reason")])
+
+    def test_privacy_page_describes_review_conversations(self):
+        self.assertContains(self.client.get("/docs/privacy/"), "Review conversations")

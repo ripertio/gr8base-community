@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+
+{% block title %}Notification settings – gr8base community{% endblock %}
+
+{% block content %}
+<h1>Notification settings</h1>
+<p>Choose for each kind of notification whether you see it in the app (the counter next to your name) and whether you get an email.</p>
+
+<form method="post">
+    {% csrf_token %}
+    <div class="overflow-auto">
+        <table class="notification-settings">
+            <thead>
+                <tr>
+                    <th scope="col">Notification</th>
+                    <th scope="col">In the app</th>
+                    <th scope="col">By email</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for row in rows %}
+                    <tr>
+                        <th scope="row">{{ row.label }}</th>
+                        <td>
+                            <input type="checkbox" name="{{ row.key }}-in_app" aria-label="{{ row.label }}: in the app"{% if row.in_app %} checked{% endif %}>
+                        </td>
+                        <td>
+                            <input type="checkbox" name="{{ row.key }}-email" aria-label="{{ row.label }}: by email"{% if row.email %} checked{% endif %}>
+                        </td>
+                    </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% if not user.email %}
+        <p><small>You have no email address yet, so no emails can be sent. <a href="{% url 'account_email' %}">Add one</a></small></p>
+    {% endif %}
+    <button type="submit">Save</button>
+    <a href="{% url 'profiles:detail' user.username %}">Back to profile</a>
+</form>
+{% endblock %}

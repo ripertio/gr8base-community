@@ -7,8 +7,7 @@ def nav_counts(request):
     """Counters in the navigation (templates/base.html).
 
     unread_notification_count: next to the user's name, links to /notifications/.
-    open_moderation_count: crags waiting for review or for an answer to their
-    submitter, next to "Moderation" (only
+    open_moderation_count: crags waiting for review, next to "Moderation" (only
     for those who see that link: staff and publishers, and only if they did not
     switch it off in their notification settings).
     nav_total_count: both together, on the burger icon of the collapsed menu.

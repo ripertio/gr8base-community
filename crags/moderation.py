@@ -2,7 +2,7 @@ from functools import wraps
 
 from django.contrib.auth.decorators import login_required
 from django.core.exceptions import PermissionDenied
-from django.db.models import Case, Count, F, IntegerField, OuterRef, Q, Subquery, Value, When
+from django.db.models import Case, Count, F, IntegerField, OuterRef, Subquery, Value, When
 from django.shortcuts import render
 from django.utils.http import urlencode
 
@@ -31,11 +31,13 @@ def awaiting_answer(crags):
 
 
 def open_task_count():
-    """Crags waiting for review plus crags whose submitter waits for an answer."""
-    waiting = awaiting_answer(Crag.objects.filter(status=Crag.Status.NEEDS_CHANGES))
-    return Crag.objects.filter(
-        Q(status=Crag.Status.PENDING) | Q(pk__in=waiting.values("pk"))
-    ).count()
+    """Crags waiting for review (the counter next to "Moderation").
+
+    Replies in a review are not counted here: the moderators involved already
+    get a personal notification for them, which would count the same reply
+    twice. The queue still lists them under "Waiting for your answer".
+    """
+    return Crag.objects.filter(status=Crag.Status.PENDING).count()
 
 
 def moderator_required(view):

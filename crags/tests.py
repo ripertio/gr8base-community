@@ -3323,7 +3323,7 @@ class ReviewThreadTests(CragTestBase):
         response = self.client.get(reverse("moderation:queue"), {"status": "NEEDS_CHANGES"})
         self.assertContains(response, "Reply from submitter")
 
-    def test_moderation_counter_includes_waiting_replies(self):
+    def test_a_reply_is_counted_once_for_the_moderator(self):
         Crag.objects.filter(status=Crag.Status.PENDING).update(status=Crag.Status.DRAFT)
         crag = Crag.objects.create(name="Back", area=self.area, created_by=self.alice,
                                    status=Crag.Status.PENDING)
@@ -3332,7 +3332,11 @@ class ReviewThreadTests(CragTestBase):
         self.assertEqual(self.client.get(reverse("crags:list")).context["open_moderation_count"], 0)
         self.reply(self.alice, crag=crag)
         self.client.force_login(self.manager)
-        self.assertEqual(self.client.get(reverse("crags:list")).context["open_moderation_count"], 1)
+        context = self.client.get(reverse("crags:list")).context
+        # the personal notification counts it; the Moderation counter does not
+        self.assertEqual(context["unread_notification_count"], 1)
+        self.assertEqual(context["open_moderation_count"], 0)
+        self.assertEqual(context["nav_total_count"], 1)
 
     def test_existing_reason_moves_into_the_thread(self):
         from importlib import import_module

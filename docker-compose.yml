@@ -21,6 +21,9 @@ services:
       DJANGO_CSRF_TRUSTED_ORIGINS: https://gr8base.com,https://www.gr8base.com
       SITE_URL: https://gr8base.com   # links in e-mails
       RESEND_API_KEY: ${RESEND_API_KEY}
+      # push notifications / app icon number; empty = off (python manage.py vapid_keys)
+      VAPID_PUBLIC_KEY: ${VAPID_PUBLIC_KEY:-}
+      VAPID_PRIVATE_KEY: ${VAPID_PRIVATE_KEY:-}
 
       POSTGRES_DB: familienfelsen
       POSTGRES_USER: familienfelsen

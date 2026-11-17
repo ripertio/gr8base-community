@@ -168,6 +168,10 @@
     <script src="{% static 'js/guidebook-picker.js' %}" defer></script>
     <script src="{% static 'js/area-picker.js' %}" defer></script>
     <script src="{% static 'js/crag-search.js' %}" defer></script>
+    {% if push_enabled %}
+        {# push on this device and the number on the app icon (crags/push.py) #}
+        <script src="{% static 'js/push.js' %}" data-badge="{{ nav_total_count|default:0 }}" defer></script>
+    {% endif %}
 </body>
 
 </html>

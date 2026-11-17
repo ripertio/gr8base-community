@@ -84,10 +84,10 @@ class LoggingConfigTests(TestCase):
 
 
 class NoServiceWorkerTests(TestCase):
-    """The offline service worker is gone: no /sw.js, no registration, no offline copies.
+    """No offline copies; without push keys no worker at all (crags/push.py has the push one).
 
-    Its copies could keep private content (review threads, change requests) on a
-    shared device. A worker will come back, written fresh, for push notifications.
+    The old offline worker's copies could keep private content (review threads,
+    change requests) on a shared device.
     """
 
     @classmethod

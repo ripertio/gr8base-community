@@ -34,7 +34,7 @@
             <a href="{% url 'notification_settings' %}">Notification settings</a> ·
             <a href="{% url 'account_email' %}">Email</a> ·
             <a href="{% url 'account_change_password' %}">Password</a> ·
-            <form method="post" action="{% url 'account_logout' %}" class="inline-form">
+            <form method="post" action="{% url 'account_logout' %}" class="inline-form"{% if push_enabled %} data-push-logout data-unsubscribe-url="{% url 'push_unsubscribe' %}"{% endif %}>
                 {% csrf_token %}
                 <button type="submit" class="link-button">Log out</button>
             </form>

@@ -1,6 +1,7 @@
 import logging
 from datetime import timedelta
 
+from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.core.exceptions import PermissionDenied, ValidationError
@@ -515,15 +516,20 @@ def review_reply(request, pk):
 
 @login_required
 def notification_settings(request):
-    """Per notification type: in the app and/or by email (crags/notifications.py)."""
+    """Per notification type: in the app, by email and on the phone (crags/notifications.py).
+
+    "On my phone" only exists with push enabled (VAPID keys set); otherwise its
+    stored values are left alone.
+    """
     user = request.user
     types = types_for(user)
+    channels = CHANNELS if settings.PUSH_ENABLED else ("in_app", "email")
     if request.method == "POST":
         saved = dict(user.notification_settings or {})
         for kind in types:
-            saved[kind.key] = {
-                channel: f"{kind.key}-{channel}" in request.POST for channel in CHANNELS
-            }
+            row = dict(saved.get(kind.key) or {})
+            row.update({channel: f"{kind.key}-{channel}" in request.POST for channel in channels})
+            saved[kind.key] = row
         user.notification_settings = saved
         user.save(update_fields=["notification_settings"])
         logger.info("notification settings saved user=%s", user.pk)
@@ -535,10 +541,19 @@ def notification_settings(request):
             "label": kind.label,
             "in_app": wants(user, kind.key, "in_app"),
             "email": wants(user, kind.key, "email"),
+            "push": wants(user, kind.key, "push"),
         }
         for kind in types
     ]
-    return render(request, "crags/notification_settings.html", {"rows": rows})
+    return render(
+        request,
+        "crags/notification_settings.html",
+        {
+            "rows": rows,
+            "push_enabled": settings.PUSH_ENABLED,
+            "vapid_public_key": settings.VAPID_PUBLIC_KEY,
+        },
+    )
 
 
 @login_required

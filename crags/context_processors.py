@@ -1,3 +1,5 @@
+from django.conf import settings
+
 from .moderation import open_task_count
 from .models import Notification
 from .notifications import can_moderate, wants
@@ -15,8 +17,10 @@ def nav_counts(request):
     user = getattr(request, "user", None)
     if user is None or not user.is_authenticated:
         return {}
+    # push_enabled: load static/js/push.js (device on/off, app icon number)
     counts = {"unread_notification_count": Notification.unread_for(user).count()}
     if can_moderate(user) and wants(user, "REVIEW_WAITING", "in_app"):
         counts["open_moderation_count"] = open_task_count()
     counts["nav_total_count"] = sum(counts.values())
+    counts["push_enabled"] = settings.PUSH_ENABLED
     return counts

@@ -26,7 +26,8 @@ from .forms import (
 )
 from .models import (
     THUMBNAIL_EDGE, Area, Crag, InvalidTransition, CragComment, CragRating, Feature,
-    ChangeRequest, ChangeRequestPhoto, Guidebook, Notification, Photo, ReviewMessage,
+    ChangeRequest, ChangeRequestPhoto, Guidebook, Notification, Photo, PushSubscription,
+    ReviewMessage,
 )
 
 
@@ -3812,3 +3813,234 @@ class ChangeRequestTests(CragTestBase):
 
     def test_privacy_page_describes_change_suggestions(self):
         self.assertContains(self.client.get("/docs/privacy/"), "Change suggestions")
+
+
+
+PUSH_SETTINGS = {
+    "PUSH_ENABLED": True,
+    "VAPID_PUBLIC_KEY": "BPublicKeyForTests",
+    "VAPID_PRIVATE_KEY": "private-key-for-tests",
+    "VAPID_SUBJECT": "https://gr8base.example",
+}
+
+
+@override_settings(**PUSH_SETTINGS)
+class PushTests(CragTestBase):
+    """Push notifications and the app icon number (crags/push.py); sending is mocked."""
+
+    def setUp(self):
+        from unittest import mock
+
+        patcher = mock.patch("pywebpush.webpush")
+        self.webpush = patcher.start()
+        self.addCleanup(patcher.stop)
+        self.manager = User.objects.create_user("mgr", "mgr@example.com", "pw", is_staff=True)
+        self.manager.groups.add(Group.objects.get(name="Crag Managers"))
+
+    def device(self, user, endpoint="https://push.example/alice-phone"):
+        return PushSubscription.objects.create(user=user, endpoint=endpoint, p256dh="p" * 87, auth="a" * 22)
+
+    def payloads(self):
+        import json
+        return [json.loads(call.kwargs["data"]) for call in self.webpush.call_args_list]
+
+    def comment(self, user=None):
+        self.client.force_login(user or self.bob)
+        self.client.post(reverse("crags:comment_add", args=[self.published.pk]), {"text": "Nice!"})
+
+    # --- service worker, devices ---------------------------------------------------
+
+    def test_service_worker_shows_quiet_notifications_and_sets_the_number(self):
+        response = self.client.get("/sw.js")
+        self.assertEqual(response["Content-Type"], "application/javascript")
+        self.assertEqual(response["Cache-Control"], "no-cache")
+        body = response.content.decode()
+        self.assertIn('addEventListener("push"', body)
+        self.assertIn('addEventListener("notificationclick"', body)
+        self.assertIn("silent: true", body)
+        self.assertIn("setAppBadge", body)
+        self.assertNotIn('addEventListener("fetch"', body)  # stores and intercepts nothing
+
+    def test_subscribe_stores_the_device_and_returns_the_number(self):
+        import json
+        self.comment()  # one unread notification for alice
+        self.client.force_login(self.alice)
+        response = self.client.post(
+            reverse("push_subscribe"),
+            json.dumps({"endpoint": "https://push.example/x", "keys": {"p256dh": "p" * 87, "auth": "a" * 22}}),
+            content_type="application/json",
+        )
+        self.assertEqual(response.json(), {"ok": True, "badge": 1})
+        self.assertEqual(PushSubscription.objects.get().user, self.alice)
+
+    def test_device_moves_to_whoever_turned_it_on_last(self):
+        import json
+        self.device(self.alice, "https://push.example/shared")
+        self.client.force_login(self.bob)
+        self.client.post(
+            reverse("push_subscribe"),
+            json.dumps({"endpoint": "https://push.example/shared", "keys": {"p256dh": "q" * 87, "auth": "b" * 22}}),
+            content_type="application/json",
+        )
+        self.assertEqual(PushSubscription.objects.get().user, self.bob)
+
+    def test_invalid_subscriptions_are_refused(self):
+        import json
+        self.client.force_login(self.alice)
+        for body in ("not json", json.dumps({"endpoint": "http://insecure.example", "keys": {"p256dh": "p", "auth": "a"}}),
+                     json.dumps({"endpoint": "https://push.example/x"})):
+            response = self.client.post(reverse("push_subscribe"), body, content_type="application/json")
+            self.assertEqual(response.status_code, 400, body)
+        self.assertFalse(PushSubscription.objects.exists())
+
+    def test_subscribe_needs_login_and_csrf(self):
+        from django.test import Client
+        self.assertEqual(self.client.post(reverse("push_subscribe"), "{}", content_type="application/json").status_code, 302)
+        strict = Client(enforce_csrf_checks=True)
+        strict.force_login(self.alice)
+        self.assertEqual(strict.post(reverse("push_subscribe"), "{}", content_type="application/json").status_code, 403)
+
+    def test_unsubscribe_removes_only_own_devices(self):
+        import json
+        mine, theirs = self.device(self.alice), self.device(self.bob, "https://push.example/bob")
+        self.client.force_login(self.alice)
+        for endpoint in (mine.endpoint, theirs.endpoint):
+            response = self.client.post(reverse("push_unsubscribe"), json.dumps({"endpoint": endpoint}), content_type="application/json")
+            self.assertEqual(response.status_code, 204)
+        self.assertEqual(list(PushSubscription.objects.values_list("user__username", flat=True)), ["bob"])
+
+    # --- sending -------------------------------------------------------------------
+
+    def test_comment_is_pushed_with_text_link_and_number(self):
+        self.device(self.alice)
+        self.comment()
+        [call] = self.webpush.call_args_list
+        self.assertEqual(call.kwargs["subscription_info"]["endpoint"], "https://push.example/alice-phone")
+        self.assertEqual(call.kwargs["vapid_claims"], {"sub": "https://gr8base.example"})
+        self.assertEqual(self.payloads(), [{
+            "title": "gr8base",
+            "body": "bob commented on \u201cPublic\u201d.",
+            "url": reverse("crags:detail", args=[self.published.pk]) + "#comments",
+            "badge": 1,
+        }])
+        self.assertIsNotNone(PushSubscription.objects.get().last_success_at)
+
+    def test_every_device_of_the_user_gets_it(self):
+        self.device(self.alice, "https://push.example/phone")
+        self.device(self.alice, "https://push.example/tablet")
+        self.comment()
+        self.assertEqual(self.webpush.call_count, 2)
+
+    def test_nothing_without_a_device_or_for_own_actions(self):
+        self.comment()  # alice has no device
+        self.device(self.alice)
+        self.comment(self.alice)  # her own comment
+        self.webpush.assert_not_called()
+
+    def test_on_my_phone_can_be_switched_off_per_type(self):
+        self.device(self.alice)
+        self.alice.notification_settings = {"COMMENT": {"in_app": True, "email": False, "push": False}}
+        self.alice.save()
+        self.comment()
+        self.webpush.assert_not_called()
+        self.assertTrue(Notification.objects.filter(user=self.alice, kind="COMMENT").exists())
+
+    def test_push_works_with_in_app_switched_off(self):
+        self.device(self.alice)
+        self.alice.notification_settings = {"COMMENT": {"in_app": False, "email": False, "push": True}}
+        self.alice.save()
+        self.comment()
+        self.assertEqual(self.webpush.call_count, 1)
+        self.assertEqual(self.payloads()[0]["badge"], 0)
+
+    def test_review_results_are_pushed(self):
+        self.device(self.alice)
+        self.pending.transition(Crag.Status.PUBLISHED, self.manager)
+        self.assertEqual(self.payloads()[0]["body"], "\u201cWaiting\u201d was published. Thank you for contributing!")
+
+    def test_moderators_get_waiting_crags_with_the_moderation_count(self):
+        self.device(self.manager, "https://push.example/mgr")
+        self.draft.transition(Crag.Status.PENDING, self.alice)
+        [payload] = self.payloads()
+        self.assertEqual(payload["body"], "\u201cDraft entry\u201d is waiting for review.")
+        self.assertEqual(payload["url"], reverse("moderation:queue"))
+        self.assertEqual(payload["badge"], 2)  # two crags waiting for review now
+
+    def test_gone_devices_are_removed_other_errors_are_ignored(self):
+        from unittest import mock
+        from pywebpush import WebPushException
+        gone = self.device(self.alice, "https://push.example/gone")
+        self.webpush.side_effect = WebPushException("gone", response=mock.Mock(status_code=410))
+        self.comment()
+        self.assertFalse(PushSubscription.objects.filter(pk=gone.pk).exists())
+        self.device(self.alice, "https://push.example/flaky")
+        self.webpush.side_effect = WebPushException("busy", response=mock.Mock(status_code=503))
+        self.comment()  # still works, comment is saved
+        self.assertTrue(PushSubscription.objects.filter(endpoint="https://push.example/flaky").exists())
+        self.assertEqual(CragComment.objects.filter(crag=self.published).count(), 2)
+
+    def test_contact_for_push_services_is_https_or_mailto(self):
+        from crags.push import vapid_subject
+        self.assertEqual(vapid_subject(), "https://gr8base.example")
+        with override_settings(VAPID_SUBJECT="http://localhost:8010"):
+            self.assertEqual(vapid_subject(), "mailto:hello@gr8base.com")
+
+    def test_one_broken_device_does_not_stop_the_others(self):
+        self.device(self.alice, "https://push.example/broken")
+        self.device(self.alice, "https://push.example/fine")
+        self.webpush.side_effect = [ValueError("broken key"), None]
+        self.comment()
+        self.assertEqual(self.webpush.call_count, 2)
+        self.assertIsNotNone(PushSubscription.objects.get(endpoint="https://push.example/fine").last_success_at)
+
+    # --- pages ---------------------------------------------------------------------
+
+    def test_settings_page_has_device_box_and_on_my_phone_column(self):
+        self.client.force_login(self.alice)
+        response = self.client.get(reverse("notification_settings"))
+        self.assertContains(response, "Notifications on this device")
+        self.assertContains(response, 'data-public-key="BPublicKeyForTests"')
+        self.assertContains(response, '<th scope="col">On my phone</th>', html=True)
+        self.assertContains(response, 'name="COMMENT-push"')
+
+    def test_saving_stores_the_push_channel(self):
+        self.client.force_login(self.alice)
+        self.client.post(reverse("notification_settings"), {"COMMENT-in_app": "on"})
+        self.alice.refresh_from_db()
+        self.assertEqual(self.alice.notification_settings["COMMENT"], {"in_app": True, "email": False, "push": False})
+
+    def test_pages_load_the_push_script_with_the_number(self):
+        self.comment()
+        self.client.force_login(self.alice)
+        response = self.client.get(reverse("crags:list"))
+        self.assertContains(response, 'js/push.js" data-badge="1" defer')
+        profile = self.client.get(reverse("profiles:detail", args=["alice"]))
+        self.assertContains(profile, f'data-push-logout data-unsubscribe-url="{reverse("push_unsubscribe")}"')
+
+
+class PushDisabledTests(CragTestBase):
+    """Without VAPID keys: no worker, no script, no column, nothing sent."""
+
+    def test_everything_push_is_off(self):
+        import json
+        from unittest import mock
+        self.assertEqual(self.client.get("/sw.js").status_code, 404)
+        self.client.force_login(self.alice)
+        self.assertEqual(self.client.post(reverse("push_subscribe"), "{}", content_type="application/json").status_code, 404)
+        page = self.client.get(reverse("notification_settings"))
+        self.assertNotContains(page, "On my phone")
+        self.assertNotContains(page, "Notifications on this device")
+        self.assertNotContains(self.client.get(reverse("crags:list")), "push.js")
+        PushSubscription.objects.create(user=self.alice, endpoint="https://push.example/x", p256dh="p", auth="a")
+        with mock.patch("pywebpush.webpush") as webpush:
+            self.client.force_login(self.bob)
+            self.client.post(reverse("crags:comment_add", args=[self.published.pk]), {"text": "Hi"})
+            webpush.assert_not_called()
+
+    def test_saving_settings_keeps_the_hidden_push_values(self):
+        self.alice.notification_settings = {"COMMENT": {"in_app": True, "email": False, "push": False}}
+        self.alice.save()
+        self.client.force_login(self.alice)
+        self.client.post(reverse("notification_settings"), {"COMMENT-in_app": "on", "COMMENT-email": "on"})
+        self.alice.refresh_from_db()
+        self.assertEqual(self.alice.notification_settings["COMMENT"], {"in_app": True, "email": True, "push": False})

@@ -111,6 +111,15 @@ DEFAULT_FROM_EMAIL = "gr8base community <hello@gr8base.com>"
 # Used for absolute links in emails (no request is available there)
 SITE_URL = os.environ.get("SITE_URL", "https://gr8base.com").rstrip("/")
 
+# Web push: notifications and the number badge on the app icon (crags/push.py).
+# Generate the pair with: python manage.py vapid_keys. Without both keys push is
+# off: no service worker, no "On my phone" column, nothing is sent.
+VAPID_PUBLIC_KEY = os.environ.get("VAPID_PUBLIC_KEY", "")
+VAPID_PRIVATE_KEY = os.environ.get("VAPID_PRIVATE_KEY", "")
+PUSH_ENABLED = bool(VAPID_PUBLIC_KEY and VAPID_PRIVATE_KEY)
+# Contact for the push services (they may use it if something goes wrong)
+VAPID_SUBJECT = os.environ.get("VAPID_SUBJECT", SITE_URL)
+
 
 ROOT_URLCONF = 'gr8base.urls'
 

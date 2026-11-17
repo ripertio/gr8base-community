@@ -84,10 +84,10 @@ class LoggingConfigTests(TestCase):
 
 
 class NoServiceWorkerTests(TestCase):
-    """The offline service worker is gone: no /sw.js, no registration, no offline copies.
+    """No offline copies; without push keys no worker at all (crags/push.py has the push one).
 
-    Its copies could keep private content (review threads, change requests) on a
-    shared device. A worker will come back, written fresh, for push notifications.
+    The old offline worker's copies could keep private content (review threads,
+    change requests) on a shared device.
     """
 
     @classmethod
@@ -124,6 +124,38 @@ class NoServiceWorkerTests(TestCase):
 
     def test_privacy_page_no_longer_mentions_offline_copies(self):
         self.assertNotContains(self.get(reverse("doc_page", args=["privacy"])), "Offline copies")
+
+
+class WebManifestTests(TestCase):
+    """The site is installable as an app (gr8base/views.py web_manifest)."""
+
+    def test_manifest_names_icons_and_display(self):
+        response = self.client.get("/manifest.webmanifest")
+        self.assertEqual(response["Content-Type"], "application/manifest+json")
+        data = response.json()
+        self.assertEqual((data["name"], data["short_name"], data["display"]), ("gr8base community", "gr8base", "standalone"))
+        self.assertEqual(data["start_url"], "/")
+        sizes = {(icon["sizes"], icon.get("purpose", "any")) for icon in data["icons"]}
+        self.assertEqual(sizes, {("192x192", "any"), ("512x512", "any"), ("512x512", "maskable")})
+
+    def test_icon_files_exist_in_the_right_sizes(self):
+        from PIL import Image
+        for name, size in (("icon-192.png", 192), ("icon-512.png", 512), ("icon-maskable-512.png", 512),
+                           ("apple-touch-icon.png", 180), ("favicon-32.png", 32)):
+            with Image.open(settings.BASE_DIR / "static" / "icons" / name) as image:
+                self.assertEqual(image.size, (size, size), name)
+
+    def test_every_page_links_manifest_and_icons(self):
+        response = self.client.get(reverse("crags:list"))
+        self.assertContains(response, '<link rel="manifest" href="/manifest.webmanifest">')
+        self.assertContains(response, 'rel="apple-touch-icon"')
+        self.assertContains(response, '<meta name="theme-color" content="#0172ad">')
+
+    def test_manifest_is_not_counted_as_a_visit(self):
+        from stats.models import DailyHits
+        self.client.cookies["cookie_consent"] = "yes"
+        self.client.get("/manifest.webmanifest")
+        self.assertFalse(DailyHits.objects.exists())
 
 
 class FaqNavigationTests(TestCase):

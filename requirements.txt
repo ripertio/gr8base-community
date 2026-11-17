@@ -8,3 +8,4 @@ django-allauth~=65.21
 argon2-cffi~=25.1
 django-anymail[resend]~=15.2
 markdown~=3.11
+pywebpush~=2.0

@@ -10,18 +10,23 @@ from django.utils import timezone
 
 logger = logging.getLogger(__name__)
 
-CHANNELS = ("in_app", "email")
+CHANNELS = ("in_app", "email", "push")
 
 
 @dataclass(frozen=True)
 class NotificationType:
-    """A row in the notification settings; in_app/email are the defaults."""
+    """A row in the notification settings; in_app/email/push are the defaults.
+
+    push ("On my phone") only reaches devices someone turned on themselves,
+    so it is on by default.
+    """
 
     key: str  # same as Notification.Kind where there is one
     label: str
     in_app: bool
     email: bool
     moderators_only: bool = False
+    push: bool = True
 
 
 # Defaults keep the behaviour from before the settings existed.
@@ -92,6 +97,26 @@ def notify_submitter(crag):
         logger.exception("review mail failed crag=%s", crag.pk)
 
 
+def moderator_users():
+    """Active users who may publish (superusers and Crag Managers)."""
+    User = get_user_model()
+    return (
+        User.objects.filter(is_active=True)
+        .filter(
+            Q(is_superuser=True)
+            | Q(
+                groups__permissions__content_type__app_label="crags",
+                groups__permissions__codename="can_publish_crag",
+            )
+            | Q(
+                user_permissions__content_type__app_label="crags",
+                user_permissions__codename="can_publish_crag",
+            )
+        )
+        .distinct()
+    )
+
+
 def notify_moderators(crag, actor=None):
     """Mail everyone who may publish that a crag waits for review. Never raises.
 
@@ -100,23 +125,7 @@ def notify_moderators(crag, actor=None):
     their own message, so addresses are not shared.
     """
     try:
-        User = get_user_model()
-        recipients = (
-            User.objects.filter(is_active=True)
-            .filter(
-                Q(is_superuser=True)
-                | Q(
-                    groups__permissions__content_type__app_label="crags",
-                    groups__permissions__codename="can_publish_crag",
-                )
-                | Q(
-                    user_permissions__content_type__app_label="crags",
-                    user_permissions__codename="can_publish_crag",
-                )
-            )
-            .exclude(email="")
-            .distinct()
-        )
+        recipients = moderator_users().exclude(email="")
         if actor is not None:
             recipients = recipients.exclude(pk=actor.pk)
         emails = [user.email for user in recipients if wants(user, "REVIEW_WAITING", "email")]
@@ -215,10 +224,13 @@ def email_owner(user, kind, crag, actor=None, count=1, extra="", change_request=
 
 
 def notify_owner(user, kind, crag, actor=None, count=1, email=True, extra="", change_request=None):
-    """In the app and, if the user wants it, by email. Never raises."""
+    """In the app, by email and on the phone, as the user wants it. Never raises."""
+    from .push import notify_push
+
     notify_in_app(user, kind, crag, actor, count, change_request)
     if email:
         email_owner(user, kind, crag, actor, count, extra, change_request)
+    notify_push(user, kind, crag, actor, count, change_request)
 
 
 def review_participants(crag):

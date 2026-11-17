@@ -301,20 +301,22 @@ class Crag(models.Model):
             self.close_change_requests(actor)
         if to in (self.Status.PUBLISHED, self.Status.NEEDS_CHANGES):
             from .notifications import notify_in_app, notify_submitter
+            from .push import notify_push
 
-            notify_submitter(self)
-            notify_in_app(
-                self.created_by,
+            kind = (
                 Notification.Kind.PUBLISHED
                 if to == self.Status.PUBLISHED
-                else Notification.Kind.CHANGES_REQUESTED,
-                self,
-                actor,
+                else Notification.Kind.CHANGES_REQUESTED
             )
+            notify_submitter(self)
+            notify_in_app(self.created_by, kind, self, actor)
+            notify_push(self.created_by, kind, self, actor)
         elif to == self.Status.PENDING:
             from .notifications import notify_moderators
+            from .push import notify_moderators_push
 
             notify_moderators(self, actor)
+            notify_moderators_push(self, actor)
 
     def close_change_requests(self, actor):
         """On removal: decline open change requests and delete all suggested photos.
@@ -739,3 +741,26 @@ def delete_suggested_photo_file(sender, instance, **kwargs):
     """Also on cascades (a deleted crag or request): no orphaned files."""
     if instance.image:
         instance.image.delete(save=False)
+
+
+class PushSubscription(models.Model):
+    """A device that receives push notifications (Web Push), see crags/push.py.
+
+    Created when someone turns notifications on for a device (notification
+    settings), deleted when they turn them off, sign out on that device, when
+    the push service reports the address as gone, or with the account. The
+    endpoint is the device's address at its push service (Apple, Google,
+    Mozilla); p256dh and auth are the keys that encrypt the messages.
+    """
+
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="push_subscriptions"
+    )
+    endpoint = models.URLField(max_length=1000, unique=True)
+    p256dh = models.CharField(max_length=200)
+    auth = models.CharField(max_length=100)
+    created_at = models.DateTimeField(default=timezone.now)
+    last_success_at = models.DateTimeField(null=True, blank=True)
+
+    def __str__(self):
+        return f"Push device of {self.user}"

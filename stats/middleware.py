@@ -9,6 +9,7 @@ COOKIE = "seen_today"
 CONSENT_COOKIE = "cookie_consent"
 SKIPPED_PREFIXES = (
     "/static/", "/media/", "/admin/", "/healthz/", "/stats/", "/cookies/",
+    "/manifest.webmanifest", "/sw.js",  # fetched by the browser itself, not visits
 )
 
 

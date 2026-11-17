@@ -45,11 +45,21 @@ tail -f logs/app.log                # the same, from the files
 - **Single worker:** the size-based rotation assumes Gunicorn's single worker process. If `workers` is raised, use a rotation that is safe across processes (for example `logrotate` on the host).
 - **Not covered:** `$BACKUP_DIR/deploy.log` (read by `restore.sh`) stays next to the backups, see [scripts/README.md](../scripts/README.md). There is no alerting; errors are found by reading the logs.
 
-## No service worker (offline copies removed)
+## Offline copies removed
 
 Until November 2026 a service worker kept the pages a visitor opened, for reading without signal. It was removed completely:
 
 - Pages are personalised (private review threads, change requests, moderator tools), and the copies could stay on a shared device after the session ended.
 - The site is for choosing a crag, usually with signal, and the copies saved no data: pages were always loaded from the network first. Less data comes from the browser's normal cache instead: CSS and JS have hashed names and photos are served as immutable (WhiteNoise, Caddy), plus thumbnails and compression.
 
-There is no `/sw.js` and no registration script any more. A browser that still has the old worker keeps it until its site data is cleared (only one device had it). A service worker will be added again, written fresh, for push notifications (number badge on the app icon).
+A browser that still has the old worker keeps it until its site data is cleared (only one device had it).
+
+## Installable app and push notifications
+
+- **Installable:** [gr8base/views.py](../gr8base/views.py) `web_manifest` serves `/manifest.webmanifest` (name, colours, icons). Icons are in [static/icons](../static/icons) (placeholder "gr8 base", made by `make_icons.py`; replace the PNGs with real artwork, same names and sizes). On iPhone, people add the site via Share → Add to Home Screen.
+- **Push** ([crags/push.py](../crags/push.py)): on only with `VAPID_PUBLIC_KEY` and `VAPID_PRIVATE_KEY` set (`python manage.py vapid_keys`, then `.env`). Without them there is no `/sw.js`, no script and no "On my phone" column.
+- **A device** is turned on in the notification settings ([static/js/push.js](../static/js/push.js)); it is stored as a `PushSubscription` and removed when turned off, on signing out on that device, when the push service answers 404/410, or with the account.
+- **Sending:** every notification type has a third channel "On my phone" (default on; it only reaches devices someone turned on). The message carries the text, a link and the badge number (unread notifications plus open moderation tasks, as on the burger icon).
+- **The service worker** ([templates/sw.js](../templates/sw.js), `/sw.js`, no-cache) shows a quiet notification (no sound, one slot that new ones replace) and sets the app icon number; tapping opens the page. It caches nothing and intercepts no requests. Pages keep the number in sync while the site is open.
+- **Platforms:** iPhone/iPad needs iOS 16.4+ and the site on the home screen; the number appears on the icon, and banners can be turned off in the phone's settings, keeping only the number. Android Chrome shows the notification with a dot or count on the icon, depending on the launcher (no number API there). Desktop Chrome/Edge as an installed app show the number.
+- **Testing locally:** `localhost` counts as secure. Put a key pair into `.env`, restart the dev containers, turn notifications on in the settings and trigger a notification (for example a comment from another user).

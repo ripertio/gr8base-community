@@ -4,7 +4,25 @@
 
 {% block content %}
 <h1>Notification settings</h1>
-<p>Choose for each kind of notification whether you see it in the app (the counter next to your name) and whether you get an email.</p>
+<p>Choose for each kind of notification whether you see it in the app (the counter next to your name){% if push_enabled %}, on your phone{% endif %} and whether you get an email.</p>
+
+{% if push_enabled %}
+    {# turned on per device by static/js/push.js; the server only stores the device's push address #}
+    <article class="push-device" data-push
+             data-public-key="{{ vapid_public_key }}"
+             data-subscribe-url="{% url 'push_subscribe' %}"
+             data-unsubscribe-url="{% url 'push_unsubscribe' %}"
+             data-worker-url="{% url 'service_worker' %}"
+             data-csrf="{{ csrf_token }}">
+        <header><strong>Notifications on this device</strong></header>
+        <p data-push-status role="status">Checking this device…</p>
+        <div class="pills">
+            <button type="button" class="pill pill-primary" data-push-on hidden>Turn on for this device</button>
+            <button type="button" class="pill" data-push-off hidden>Turn off for this device</button>
+        </div>
+        <p><small>Shows the number of new notifications on the app icon. They arrive quietly, without sound. If you only want the number, turn off banners for gr8base in your phone's notification settings.</small></p>
+    </article>
+{% endif %}
 
 <form method="post">
     {% csrf_token %}
@@ -15,6 +33,7 @@
                     <th scope="col">Notification</th>
                     <th scope="col">In the app</th>
                     <th scope="col">By email</th>
+                    {% if push_enabled %}<th scope="col">On my phone</th>{% endif %}
                 </tr>
             </thead>
             <tbody>
@@ -27,6 +46,11 @@
                         <td>
                             <input type="checkbox" name="{{ row.key }}-email" aria-label="{{ row.label }}: by email"{% if row.email %} checked{% endif %}>
                         </td>
+                        {% if push_enabled %}
+                            <td>
+                                <input type="checkbox" name="{{ row.key }}-push" aria-label="{{ row.label }}: on my phone"{% if row.push %} checked{% endif %}>
+                            </td>
+                        {% endif %}
                     </tr>
                 {% endfor %}
             </tbody>

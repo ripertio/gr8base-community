@@ -22,7 +22,9 @@ We collect as little data as possible. There is no third-party tracking. Data is
 
 **Change suggestions.** You can suggest a change to a crag someone else created, with text and optionally photos. Your suggestion, the messages about it and the photos are only visible to you, the crag's creator and the moderators. Photos are re-encoded like all uploads (location data is removed). Photos that are accepted become part of the crag's gallery and are shown with the crag like any other photo; all other suggested photos are deleted when the suggestion is closed. The suggestion and its messages are kept with the crag; if you delete your account, your name is removed from them.
 
-**Notifications.** When someone comments on, rates or adds photos to a crag you created, or when your crag is reviewed, we store a notification for you: what happened, which crag, who did it and when. Only you see your notifications, on the "Notifications" page and as a counter next to your username. In your notification settings you choose for each kind of notification whether you see it in the app and whether you also get it by email; emails about comments, ratings and photos are off unless you switch them on. Opening that page marks them as read. Notifications that are read are deleted after 180 days. All your notifications are deleted with your account, and if the other person deletes their account, their name is removed from your notifications.
+**Notifications.** When someone comments on, rates or adds photos to a crag you created, or when your crag is reviewed, we store a notification for you: what happened, which crag, who did it and when. Only you see your notifications, on the "Notifications" page and as a counter next to your username. In your notification settings you choose for each kind of notification whether you see it in the app and whether you also get it by email; emails about comments, ratings and photos are off unless you switch them on. Opening that page marks them as read. Notifications that are read are deleted after 180 days.
+
+**Notifications on your phone (push).** If you turn on notifications for a device in your notification settings, we store that device's push address and the keys that encrypt messages to it, linked to your account. Messages go encrypted through your browser's push service (Apple, Google or Mozilla, depending on your device), which delivers them but cannot read them. They contain the notification text and the number shown on the app icon. The device entry is deleted when you turn notifications off for it, when you sign out on it, when the push service reports it as no longer valid, or with your account. All your notifications are deleted with your account, and if the other person deletes their account, their name is removed from your notifications.
 
 **Session data.** After you log in, a session cookie keeps you signed in. It is strictly necessary for the login function. We do not use marketing or tracking cookies.
 
@@ -49,6 +51,7 @@ We use the following processors. Data is passed on only to the extent needed for
 - **Hosting:** The server is a homeserver.
 - **Cloudflare** (Cloudflare Tunnel): routes traffic to the server and may process connection data as a proxy.
 - **Resend** (transactional email): processes email addresses and message content for delivery.
+- **Push services of Apple, Google or Mozilla** (only if you turn on notifications for a device): deliver encrypted push messages to your device.
 
 Where a provider processes data outside the EU/EEA, we rely on the EU-US Data Privacy Framework or the EU Standard Contractual Clauses.
 
@@ -61,6 +64,7 @@ We do not sell personal data.
 - Account data: until you delete your account or request deletion.
 - Crag entries and photos: as long as they remain published. When you delete your account, your username is removed from the entries and photos you created. Crag information that others rely on (such as location and approach details) stays published without any link to you. Personal data in them, such as photos showing people or captions naming people, is removed on request. See section 5 of our [Terms of Use](/docs/terms/).
 - Notifications: 180 days after you have read them, or until you delete your account.
+- Push device entries: until you turn notifications off for the device, sign out on it, the push service reports it invalid, or you delete your account.
 - Review conversations: as long as the crag exists; your name is removed when you delete your account.
 - Change suggestions: the text and messages as long as the crag exists (your name is removed when you delete your account); suggested photos until the suggestion is closed, unless they are accepted into the gallery.
 - Server logs: only for as long as needed for operation and security, then deleted.

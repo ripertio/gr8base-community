@@ -4,7 +4,8 @@ from pathlib import Path
 import markdown
 from django.conf import settings
 from django.db import connection
-from django.http import Http404, HttpResponse
+from django.http import Http404, HttpResponse, JsonResponse
+from django.templatetags.static import static
 from django.shortcuts import redirect, render
 from django.utils.http import url_has_allowed_host_and_scheme
 from django.views.decorators.http import require_POST
@@ -104,6 +105,36 @@ def doc_page(request, slug):
         "docs_page.html",
         {"title": page_title(path, body), "content": html, "toc": toc},
     )
+
+
+def web_manifest(request):
+    """Makes the site installable as an app (home screen icon, no browser bar).
+
+    A view rather than a static file, so the icon URLs carry the hashed names.
+    """
+    response = JsonResponse(
+        {
+            "name": "gr8base community",
+            "short_name": "gr8base",
+            "description": "Find and share family-friendly climbing crags.",
+            "start_url": "/",
+            "scope": "/",
+            "display": "standalone",
+            "background_color": "#ffffff",
+            "theme_color": "#0172ad",
+            "icons": [
+                {"src": static("icons/icon-192.png"), "sizes": "192x192", "type": "image/png"},
+                {"src": static("icons/icon-512.png"), "sizes": "512x512", "type": "image/png"},
+                {
+                    "src": static("icons/icon-maskable-512.png"), "sizes": "512x512",
+                    "type": "image/png", "purpose": "maskable",
+                },
+            ],
+        },
+        content_type="application/manifest+json",
+    )
+    response["Cache-Control"] = "public, max-age=86400"
+    return response
 
 
 def healthz(request):

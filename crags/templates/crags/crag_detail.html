@@ -9,53 +9,59 @@
 
 {% block content %}
 
-{% if next %}
-    <p><a href="{{ next }}">← Back</a></p>
-{% endif %}
+{# Header: back link, name with status chip, area and the actions as pill buttons #}
+<header class="crag-header">
+    <p class="crag-back">{% if next %}<a href="{{ next }}">← Back</a>{% else %}<a href="{% url 'crags:list' %}">← All crags</a>{% endif %}</p>
+    <div class="crag-title">
+        <h1>{{ crag.name }}</h1>
+        {% if crag.status != "PUBLISHED" %}<span class="status-chip status-{{ crag.status|lower }}">{{ crag.get_status_display }}</span>{% endif %}
+    </div>
+    <p class="area">{{ crag.area.name }}</p>
 
-{% if crag.status == "PENDING" %}
-    <p><mark>Pending review</mark></p>
-{% elif crag.status == "NEEDS_CHANGES" %}
+    {% if can_edit or can_publish or can_return or can_reject or can_suggest %}
+        <div class="pills">
+            {% if can_suggest %}
+                <a href="{% url 'crags:suggest' crag.pk %}" class="pill">{% include "_icon.html" with name="suggest" %}Suggest a change</a>
+            {% endif %}
+            {% if can_edit %}
+                <a href="{% url 'crags:edit' crag.pk %}{% if next %}?next={{ next|urlencode:'' }}{% endif %}" class="pill">{% include "_icon.html" with name="edit" %}Edit</a>
+            {% endif %}
+            {% if can_edit and can_publish or can_edit and can_return or can_edit and can_reject %}
+                {# separates the review decisions from editing #}
+                <span class="pill-divider" aria-hidden="true"></span>
+            {% endif %}
+            {% if can_publish %}
+                <form method="post" action="{% url 'crags:publish' crag.pk %}">
+                    {% csrf_token %}
+                    {% if next %}<input type="hidden" name="next" value="{{ next }}">{% endif %}
+                    <button type="submit" class="pill pill-primary">{% include "_icon.html" with name="check" %}Publish</button>
+                </form>
+            {% endif %}
+            {% if can_return %}
+                <button type="button" class="pill"
+                        onclick="document.getElementById('return-dialog').showModal()">{% include "_icon.html" with name="undo" %}Needs changes</button>
+            {% endif %}
+            {% if can_reject %}
+                <form method="post" action="{% url 'crags:reject' crag.pk %}"
+                      onsubmit="return confirm('Reject this crag? Only a superuser can change its status afterwards.')">
+                    {% csrf_token %}
+                    {% if next %}<input type="hidden" name="next" value="{{ next }}">{% endif %}
+                    <button type="submit" class="pill pill-danger">{% include "_icon.html" with name="x" %}Reject</button>
+                </form>
+            {% endif %}
+        </div>
+    {% endif %}
+    {% if not user.is_authenticated and crag.status == "PUBLISHED" %}
+        {# after logging in, straight to the suggestion form #}
+        <p><small><a href="{% url 'account_login' %}?next={% url 'crags:suggest' crag.pk %}">Log in</a> to suggest a change to this crag.</small></p>
+    {% endif %}
+</header>
+
+{% if crag.status == "NEEDS_CHANGES" %}
     <article>
         <header><strong>Changes requested</strong></header>
         {% if can_edit %}<p><small>The moderators asked for changes, see <a href="#review">the review</a> below. Reply there if something is unclear, or edit this crag and use "Submit for review" to resubmit it.</small></p>{% endif %}
     </article>
-{% elif crag.status != "PUBLISHED" %}
-    <p><mark>Status: {{ crag.get_status_display }}</mark></p>
-{% endif %}
-
-{% if can_edit or can_publish or can_return or can_reject or can_suggest %}
-    <div class="actions">
-        {% if can_suggest %}
-            <a href="{% url 'crags:suggest' crag.pk %}" role="button" class="outline secondary">Suggest a change</a>
-        {% endif %}
-        {% if can_edit %}
-            <a href="{% url 'crags:edit' crag.pk %}{% if next %}?next={{ next|urlencode:'' }}{% endif %}" role="button" class="outline">Edit</a>
-        {% endif %}
-        {% if can_publish %}
-            <form method="post" action="{% url 'crags:publish' crag.pk %}">
-                {% csrf_token %}
-                {% if next %}<input type="hidden" name="next" value="{{ next }}">{% endif %}
-                <button type="submit">Publish</button>
-            </form>
-        {% endif %}
-        {% if can_return %}
-            <button type="button" class="outline secondary"
-                    onclick="document.getElementById('return-dialog').showModal()">Needs changes</button>
-        {% endif %}
-        {% if can_reject %}
-            <form method="post" action="{% url 'crags:reject' crag.pk %}"
-                  onsubmit="return confirm('Reject this crag? Only a superuser can change its status afterwards.')">
-                {% csrf_token %}
-                {% if next %}<input type="hidden" name="next" value="{{ next }}">{% endif %}
-                <button type="submit" class="outline secondary">Reject</button>
-            </form>
-        {% endif %}
-    </div>
-{% endif %}
-{% if not user.is_authenticated and crag.status == "PUBLISHED" %}
-    {# after logging in, straight to the suggestion form #}
-    <p><small><a href="{% url 'account_login' %}?next={% url 'crags:suggest' crag.pk %}">Log in</a> to suggest a change to this crag.</small></p>
 {% endif %}
 {% if can_return %}
     <form id="return-form" method="post" action="{% url 'crags:return' crag.pk %}">
@@ -81,23 +87,6 @@
         </ul>
     </article>
 {% endif %}
-
-<a href="{% url 'crags:list' %}">
-    ← All crags
-</a>
-
-
-<header class="crag-header">
-
-    <h1>
-        {{ crag.name }}
-    </h1>
-
-    <p class="area">
-        {{ crag.area.name }}
-    </p>
-
-</header>
 
 <section>
 
@@ -136,8 +125,8 @@
             </div>
 
             {% if can_rate %}
-                <button type="button" class="outline" onclick="document.getElementById('rate-dialog').showModal()">
-                    {% if my_rating %}Update your rating{% else %}Rate this crag{% endif %}
+                <button type="button" class="pill" onclick="document.getElementById('rate-dialog').showModal()">
+                    {% include "_icon.html" with name="star" %}{% if my_rating %}Update your rating{% else %}Rate this crag{% endif %}
                 </button>
                 <dialog id="rate-dialog">
                     <article>
@@ -167,7 +156,7 @@
                             </label>
                             <small>Leave an age blank if you don't know it.</small>
                             <footer>
-                                <button type="submit">Save rating</button>
+                                <button type="submit" class="pill pill-primary">{% include "_icon.html" with name="check" %}Save rating</button>
                             </footer>
                         </form>
                     </article>
@@ -265,7 +254,7 @@
                                   onsubmit="return confirm('Delete this photo?')">
                                 {% csrf_token %}
                                 {% if next %}<input type="hidden" name="next" value="{% url 'crags:detail' crag.pk %}?next={{ next|urlencode:'' }}">{% endif %}
-                                <button type="submit" class="outline secondary">Delete</button>
+                                <button type="submit" class="pill pill-small pill-danger">{% include "_icon.html" with name="trash" %}Delete</button>
                             </form>
                         {% endif %}
                     </figcaption>
@@ -289,7 +278,7 @@
     {% endif %}
 
     {% if can_edit %}
-        <p><a href="{% url 'crags:photo_add' crag.pk %}" role="button" class="outline">Add photo</a></p>
+        <p><a href="{% url 'crags:photo_add' crag.pk %}" class="pill">{% include "_icon.html" with name="camera" %}Add photo</a></p>
     {% endif %}
 </section>
 
@@ -387,7 +376,7 @@
                 {% if user.is_staff or comment.user_id == user.id %}
                     <form method="post" action="{% url 'crags:comment_delete' comment.pk %}" onsubmit="return confirm('Delete this comment?')">
                         {% csrf_token %}
-                        <button type="submit" class="comment-delete">Delete</button>
+                        <button type="submit" class="pill pill-small pill-danger">{% include "_icon.html" with name="trash" %}Delete</button>
                     </form>
                 {% endif %}
             </header>
@@ -403,7 +392,7 @@
             <label>Add a comment
                 <textarea name="text" rows="3" maxlength="{{ comment_max_length }}" required placeholder="Is the crag different from the description? Share what you found useful."></textarea>
             </label>
-            <button type="submit">Post comment</button>
+            <button type="submit" class="pill pill-primary">{% include "_icon.html" with name="send" %}Post comment</button>
         </form>
     {% elif not user.is_authenticated and crag.status == "PUBLISHED" %}
         <p><small><a href="{% url 'account_login' %}?next={{ request.path }}%23comments">Log in</a> to comment.</small></p>

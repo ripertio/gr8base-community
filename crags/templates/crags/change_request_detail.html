@@ -72,10 +72,10 @@
         <label for="close-text">Note to {{ change_request.requester_name }} (optional)
             <textarea id="close-text" name="text" rows="2" maxlength="{{ max_length }}" placeholder="Thanks, updated the parking!"></textarea>
         </label>
-        <div class="actions">
-            <button type="submit" name="action" value="done">Done</button>
-            <button type="submit" name="action" value="declined" class="outline secondary"
-                    onclick="return confirm('Decline this change request? Suggested photos will be deleted.')">Decline</button>
+        <div class="pills">
+            <button type="submit" name="action" value="done" class="pill pill-primary">{% include "_icon.html" with name="check" %}Done</button>
+            <button type="submit" name="action" value="declined" class="pill pill-danger"
+                    onclick="return confirm('Decline this change request? Suggested photos will be deleted.')">{% include "_icon.html" with name="x" %}Decline</button>
         </div>
     </form>
 {% endif %}
@@ -85,7 +85,7 @@
     <form method="post" action="{% url 'crags:change_request_withdraw' change_request.pk %}"
           onsubmit="return confirm('Withdraw your suggestion? Photos you added will be deleted.')">
         {% csrf_token %}
-        <button type="submit" class="outline secondary">Withdraw suggestion</button>
+        <p><button type="submit" class="pill pill-danger">{% include "_icon.html" with name="undo" %}Withdraw suggestion</button></p>
     </form>
 {% endif %}
 
@@ -94,7 +94,7 @@
         {% csrf_token %}
         <label for="reply-text">Write a message</label>
         <textarea id="reply-text" name="text" rows="3" maxlength="{{ max_length }}" required></textarea>
-        <button type="submit" class="secondary">Send message</button>
+        <button type="submit" class="pill pill-primary">{% include "_icon.html" with name="send" %}Send message</button>
     </form>
 {% else %}
     <p><small>This change request is closed.</small></p>

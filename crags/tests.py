@@ -2394,13 +2394,6 @@ class ModerationReturnTests(CragTestBase):
         response = self.client.post(reverse("crags:publish", args=[self.pending.pk]))
         self.assertRedirects(response, self.detail(self.pending))
 
-    def test_detail_with_target_is_not_stored_offline(self):
-        self.client.logout()
-        plain = self.client.get(self.detail(self.published))
-        with_target = self.client.get(self.detail(self.published, "/"))
-        self.assertEqual(plain["X-Offline-Cache"], "1")
-        self.assertNotIn("X-Offline-Cache", with_target)
-
 
 class SearchSuggestionTests(CragTestBase):
     """Data and markup for the type-ahead fields (static/js/suggest.js and its users)."""

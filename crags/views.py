@@ -13,7 +13,6 @@ from django.utils.http import url_has_allowed_host_and_scheme, urlencode
 from django.views.decorators.cache import cache_control
 from django.views.decorators.http import require_POST
 
-from gr8base.offline import offline_cacheable
 
 from .forms import BulkPhotoForm, CragForm, coordinates_from_photos, process_image
 from .models import (
@@ -170,7 +169,6 @@ DEFAULT_SORT = "updated"
 STROLLER_SLUG = "stroller_friendly"
 
 
-@offline_cacheable
 def crag_list(request):
     crags = Crag.objects.select_related("area").public()
     get = request.GET
@@ -346,7 +344,6 @@ def crag_suggestions(request):
     )
 
 
-@offline_cacheable
 def crag_detail(request, pk):
     crag = get_object_or_404(
         visible_crags(request.user).select_related("created_by").prefetch_related(

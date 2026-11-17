@@ -5,7 +5,7 @@ from django.shortcuts import render
 from django.urls import include, path
 from crags.views import crag_list, notification_list, notification_settings
 from gr8base.views import (
-    cookie_consent, doc_index, doc_page, healthz,
+    cookie_consent, doc_index, doc_page, healthz, web_manifest,
 )
 
 
@@ -21,6 +21,7 @@ urlpatterns = [
     path("docs/<slug:slug>/", doc_page, name="doc_page"),
     path("cookies/", cookie_consent, name="cookie_consent"),
     path("healthz/", healthz, name="healthz"),
+    path("manifest.webmanifest", web_manifest, name="web_manifest"),
     path("admin/", admin.site.urls),
     path("accounts/", include("allauth.urls")),
 ]

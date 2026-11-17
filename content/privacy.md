@@ -18,6 +18,8 @@ We collect as little data as possible. There is no third-party tracking. Data is
 
 **Content you submit.** Crag entries (name, location coordinates, description, parking and family notes, guidebook references), uploaded photos with captions, and the username that created them. Uploaded photos are re-encoded on upload, which removes embedded metadata such as location or device information (EXIF). If a crag has no coordinates yet, the location stored in an uploaded photo (except photos in the category "Parking") is read once, before it is removed, and used to fill in the crag coordinates. It is not kept in the photo. The coordinates become part of the crag entry like any coordinates you type in, and you can change or remove them at any time. Coordinates you entered yourself are never replaced. Photos and captions may show or name people. Please do not upload identifiable people without their consent.
 
+**Notifications.** When someone comments on, rates or adds photos to a crag you created, or when your crag is reviewed, we store a notification for you: what happened, which crag, who did it and when. Only you see your notifications, on the "Notifications" page and as a counter next to your username. Opening that page marks them as read. Notifications that are read are deleted after 180 days. All your notifications are deleted with your account, and if the other person deletes their account, their name is removed from your notifications.
+
 **Session data.** After you log in, a session cookie keeps you signed in. It is strictly necessary for the login function. We do not use marketing or tracking cookies.
 
 **Visitor counter.** Only if you accept in the cookie banner, and to count how many different people visit per day, we set a cookie that contains only the current date (and a marker if you were logged in) and expires at midnight. It prevents reloads from being counted twice. We store only two daily totals (all visitors, and visitors who were logged in), no IP address, user agent or other visitor data. If you decline, nothing is counted and the cookie is not set. Your choice is remembered in a cookie named `cookie_consent` for 180 days; you can change it at any time via "Cookie settings" in the footer.
@@ -56,6 +58,7 @@ We do not sell personal data.
 
 - Account data: until you delete your account or request deletion.
 - Crag entries and photos: as long as they remain published. When you delete your account, your username is removed from the entries and photos you created. Crag information that others rely on (such as location and approach details) stays published without any link to you. Personal data in them, such as photos showing people or captions naming people, is removed on request. See section 5 of our [Terms of Use](/docs/terms/).
+- Notifications: 180 days after you have read them, or until you delete your account.
 - Server logs: only for as long as needed for operation and security, then deleted.
 
 ## 6. Your rights

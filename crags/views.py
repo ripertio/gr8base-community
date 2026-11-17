@@ -1,4 +1,5 @@
 import logging
+from datetime import timedelta
 
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
@@ -7,6 +8,7 @@ from django.db.models import Avg, Count, Q
 from django.http import JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
+from django.utils import timezone
 from django.utils.http import url_has_allowed_host_and_scheme, urlencode
 from django.views.decorators.cache import cache_control
 from django.views.decorators.http import require_POST
@@ -14,7 +16,10 @@ from django.views.decorators.http import require_POST
 from gr8base.offline import offline_cacheable
 
 from .forms import BulkPhotoForm, CragForm, coordinates_from_photos, process_image
-from .models import Area, Crag, CragComment, CragRating, Feature, InvalidTransition, Photo
+from .models import (
+    Area, Crag, CragComment, CragRating, Feature, InvalidTransition, Notification, Photo,
+)
+from .notifications import notify_in_app
 
 logger = logging.getLogger(__name__)
 
@@ -404,6 +409,7 @@ def crag_rate(request, pk):
         CragRating.objects.update_or_create(
             crag=crag, user=request.user, defaults=values
         )
+        notify_in_app(crag.created_by, Notification.Kind.RATING, crag, request.user)
         messages.success(request, "Thanks for rating!")
     return redirect("crags:detail", pk=pk)
 
@@ -421,6 +427,7 @@ def comment_add(request, pk):
         )
     else:
         CragComment.objects.create(crag=crag, user=request.user, text=text)
+        notify_in_app(crag.created_by, Notification.Kind.COMMENT, crag, request.user)
         messages.success(request, "Comment added.")
     return redirect(reverse("crags:detail", args=[crag.pk]) + "#comments")
 
@@ -434,6 +441,21 @@ def comment_delete(request, pk):
     comment.delete()
     messages.success(request, "Comment deleted.")
     return redirect(reverse("crags:detail", args=[comment.crag_id]) + "#comments")
+
+
+@login_required
+def notification_list(request):
+    """Latest notifications; opening the page marks them all as read."""
+    mine = Notification.objects.filter(user=request.user)
+    mine.filter(
+        read_at__lt=timezone.now() - timedelta(days=Notification.KEEP_READ_DAYS)
+    ).delete()
+    notifications = list(
+        mine.exclude(crag__status=Crag.Status.REMOVED).select_related("crag", "actor")[:50]
+    )
+    # after fetching, so this page can still highlight what was new
+    Notification.unread_for(request.user).update(read_at=timezone.now())
+    return render(request, "crags/notifications.html", {"notifications": notifications})
 
 
 @login_required
@@ -633,6 +655,10 @@ def crag_edit(request, pk):
                     crag.pk, request.user.pk, crag.status,
                 )
                 if converted:
+                    notify_in_app(
+                        crag.created_by, Notification.Kind.PHOTO, crag, request.user,
+                        len(converted),
+                    )
                     logger.info(
                         "photos uploaded crag=%s user=%s count=%s",
                         crag.pk, request.user.pk, len(converted),
@@ -734,6 +760,9 @@ def photo_add(request, pk):
                 logger.info(
                     "photos uploaded crag=%s user=%s count=%s",
                     crag.pk, request.user.pk, len(converted),
+                )
+                notify_in_app(
+                    crag.created_by, Notification.Kind.PHOTO, crag, request.user, len(converted)
                 )
                 messages.success(request, f"Uploaded {len(converted)} photo(s).")
                 if photo_coordinates:

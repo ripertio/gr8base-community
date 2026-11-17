@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+
+{% block title %}Notifications – gr8base community{% endblock %}
+
+{% block content %}
+<h1>Notifications</h1>
+
+{% if notifications %}
+    <ul class="notification-list">
+        {% for notification in notifications %}
+            <li{% if not notification.read_at %} class="is-unread"{% endif %}>
+                <a href="{{ notification.url }}">{{ notification.text }}</a>
+                <small>
+                    {% if not notification.read_at %}<strong>New</strong> · {% endif %}
+                    <time datetime="{{ notification.created_at|date:'c' }}">{{ notification.created_at|timesince }} ago</time>
+                </small>
+            </li>
+        {% endfor %}
+    </ul>
+{% else %}
+    <p>No notifications yet. You will see here when someone comments on, rates or adds photos to your crags, and when your crags are reviewed.</p>
+{% endif %}
+{% endblock %}

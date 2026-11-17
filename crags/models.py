@@ -2,6 +2,7 @@ from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.core.validators import MinValueValidator, MaxValueValidator
 from django.db import models
+from django.urls import reverse
 from django.core.files.base import ContentFile
 from django.utils import timezone
 from PIL import Image
@@ -285,9 +286,17 @@ class Crag(models.Model):
         self.status = to
         self.save()
         if to in (self.Status.PUBLISHED, self.Status.NEEDS_CHANGES):
-            from .notifications import notify_submitter
+            from .notifications import notify_in_app, notify_submitter
 
             notify_submitter(self)
+            notify_in_app(
+                self.created_by,
+                Notification.Kind.PUBLISHED
+                if to == self.Status.PUBLISHED
+                else Notification.Kind.CHANGES_REQUESTED,
+                self,
+                actor,
+            )
         elif to == self.Status.PENDING:
             from .notifications import notify_moderators
 
@@ -440,3 +449,70 @@ class CragComment(models.Model):
 
     def __str__(self):
         return f"{self.user} on {self.crag}"
+
+
+class Notification(models.Model):
+    """In-app notice for a crag's creator (the counter next to their name).
+
+    Only ids, the kind and a count are stored; the text is built when shown, so
+    renaming a crag or deleting an account never leaves stale copies behind.
+    Deleted with the recipient or the crag; the actor link is cleared when the
+    actor's account is deleted.
+    """
+
+    class Kind(models.TextChoices):
+        COMMENT = "COMMENT", "New comment"
+        RATING = "RATING", "New rating"
+        PHOTO = "PHOTO", "New photos"
+        PUBLISHED = "PUBLISHED", "Published"
+        CHANGES_REQUESTED = "CHANGES_REQUESTED", "Changes requested"
+
+    # read notifications older than this are deleted when the list is opened
+    KEEP_READ_DAYS = 180
+
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="notifications"
+    )
+    kind = models.CharField(max_length=20, choices=Kind.choices)
+    crag = models.ForeignKey(Crag, on_delete=models.CASCADE, related_name="+")
+    actor = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name="+",
+    )
+    count = models.PositiveSmallIntegerField(default=1)  # e.g. 3 photos in one go
+    created_at = models.DateTimeField(default=timezone.now)
+    read_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ["-created_at", "-pk"]
+        indexes = [models.Index(fields=["user", "read_at"], name="notification_unread")]
+
+    def __str__(self):
+        return f"{self.get_kind_display()} → {self.user}"
+
+    @classmethod
+    def unread_for(cls, user):
+        """The user's unread notifications (the counter next to their name)."""
+        return cls.objects.filter(user=user, read_at__isnull=True).exclude(
+            crag__status=Crag.Status.REMOVED
+        )
+
+    @property
+    def text(self):
+        who = self.actor.username if self.actor else "Someone"
+        name = f"“{self.crag.name}”"
+        if self.kind == self.Kind.COMMENT:
+            return f"{who} commented on {name}."
+        if self.kind == self.Kind.RATING:
+            return f"{who} rated {name}."
+        if self.kind == self.Kind.PHOTO:
+            photos = "a photo" if self.count == 1 else f"{self.count} photos"
+            return f"{who} added {photos} to {name}."
+        if self.kind == self.Kind.PUBLISHED:
+            return f"{name} was published. Thank you for contributing!"
+        return f"Changes were requested for {name}. Please edit it and submit it again."
+
+    @property
+    def url(self):
+        url = reverse("crags:detail", args=[self.crag_id])
+        return url + "#comments" if self.kind == self.Kind.COMMENT else url

@@ -5,6 +5,7 @@ from django.contrib.auth import get_user_model
 from django.core.mail import send_mail, send_mass_mail
 from django.db.models import Q
 from django.urls import reverse
+from django.utils import timezone
 
 logger = logging.getLogger(__name__)
 
@@ -87,3 +88,30 @@ def notify_moderators(crag, actor=None):
         logger.info("moderator mail sent crag=%s recipients=%s", crag.pk, len(emails))
     except Exception:
         logger.exception("moderator mail failed crag=%s", crag.pk)
+
+
+def notify_in_app(user, kind, crag, actor=None, count=1):
+    """Add an in-app notification for user about their crag. Never raises.
+
+    Nothing is created for your own actions or for inactive accounts. Repeated
+    ratings and photo uploads by the same person are merged into the unread
+    notification that is already there, instead of piling up.
+    """
+    from .models import Notification
+
+    try:
+        if user is None or not user.is_active or (actor is not None and actor.pk == user.pk):
+            return
+        if kind in (Notification.Kind.RATING, Notification.Kind.PHOTO):
+            existing = Notification.objects.filter(
+                user=user, kind=kind, crag=crag, actor=actor, read_at__isnull=True
+            ).first()
+            if existing is not None:
+                if kind == Notification.Kind.PHOTO:
+                    existing.count = min(existing.count + count, 32767)
+                existing.created_at = timezone.now()
+                existing.save(update_fields=["count", "created_at"])
+                return
+        Notification.objects.create(user=user, kind=kind, crag=crag, actor=actor, count=count)
+    except Exception:
+        logger.exception("notification failed crag=%s kind=%s", crag.pk, kind)

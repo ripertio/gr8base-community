@@ -1,7 +1,7 @@
 ---
 tags: [faq]
 section: About gr8base
-order: 0
+order: 4
 ---
 
 # What is gr8base, and what is it not?

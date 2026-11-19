@@ -1,7 +1,7 @@
 ---
 tags: [faq]
 section: Project
-order: 5
+order: 7
 ---
 
 # How do I report a bug or suggest an improvement?

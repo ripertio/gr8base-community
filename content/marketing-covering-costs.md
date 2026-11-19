@@ -1,7 +1,7 @@
 ---
 tags: [faq]
 section: About gr8base
-order: 8
+order: 5
 ---
 
 # How much does gr8base cost and how is it financed?

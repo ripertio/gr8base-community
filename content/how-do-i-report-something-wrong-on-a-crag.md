@@ -1,6 +1,6 @@
 ---
 tags: [faq]
-section: How can i contribute
+section: Start here
 order: 2
 ---
 

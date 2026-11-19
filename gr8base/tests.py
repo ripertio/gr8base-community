@@ -177,9 +177,9 @@ class FaqNavigationTests(TestCase):
         response = self.client.get(reverse("docs"))
         self.assertEqual(
             [name for name, _ in response.context["sections"]],
-            ["About gr8base", "How can i contribute", "Project"],
+            ["Start here", "About gr8base", "Project"],
         )
-        self.assertContains(response, "<h3>How can i contribute</h3>", html=True)
+        self.assertContains(response, "<h3>Start here</h3>", html=True)
 
     def test_footer_links_to_faq(self):
         content = self.client.get(reverse("crags:list")).content.decode()

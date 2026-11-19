@@ -1,7 +1,7 @@
 ---
 tags: [faq]
 section: About gr8base
-order: 9
+order: 6
 ---
 
 # Is there a reward for adding many crags?

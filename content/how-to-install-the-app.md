@@ -1,6 +1,6 @@
 ---
 tags: [faq]
-section: About gr8base
+section: Start here
 order: 3
 ---
 

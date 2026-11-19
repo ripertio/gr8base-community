@@ -1,4 +1,4 @@
-# Why gr8base community exists?
+# Good to know
 
 On sport climbing you spend most of the day at the base, not on the rock. So why not decide which crag to visit by the base, where your needs are met? For example, you know your loved ones can play and are safe. 
 

@@ -8,15 +8,6 @@
 
 {% block content %}
 
-{% if toc %}
-<details open>
-    <summary>On this page</summary>
-    <nav aria-label="On this page">
-        {{ toc|safe }}
-    </nav>
-</details>
-{% endif %}
-
 <article>
     {{ content|safe }}
 </article>

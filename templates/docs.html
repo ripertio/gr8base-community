@@ -20,16 +20,16 @@ FAQ – gr8base community
 
 <section>
 
-    <h2>
-        Useful information
-    </h2>
 
+    {% for section, pages in sections %}
+    <h3>{{ section }}</h3>
     <ul>
         {% for page in pages %}
         <li><a href="{% url 'doc_page' page.slug %}">{{ page.title }}</a></li>
         {% endfor %}
-        <li><a href="{% url 'stats:index' %}">Site statistics</a></li>
+        {% if forloop.last %}<li><a href="{% url 'stats:index' %}">How big is gr8base?</a></li>{% endif %}
     </ul>
+    {% endfor %}
 
 </section>
 

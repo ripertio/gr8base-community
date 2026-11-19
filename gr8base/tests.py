@@ -170,10 +170,16 @@ class FaqNavigationTests(TestCase):
 
     def test_faq_page_links_to_statistics(self):
         response = self.client.get(reverse("docs"))
-        self.assertContains(response, f'<a href="{reverse("stats:index")}">Site statistics</a>', html=True)
+        self.assertContains(response, f'<a href="{reverse("stats:index")}">How big is gr8base?</a>', html=True)
         self.assertContains(response, "FAQ – gr8base community")
-        self.assertContains(response, ">Frequently asked questions</h1>")
-        self.assertContains(response, "Useful information")
+
+    def test_faq_pages_are_grouped_by_section(self):
+        response = self.client.get(reverse("docs"))
+        self.assertEqual(
+            [name for name, _ in response.context["sections"]],
+            ["Start here", "About gr8base", "Project"],
+        )
+        self.assertContains(response, "<h3>Start here</h3>", html=True)
 
     def test_footer_links_to_faq(self):
         content = self.client.get(reverse("crags:list")).content.decode()

@@ -11,17 +11,25 @@ The project is open source and everyone is welcome to help:
 ## What it does
 
 **For everyone**
-- Browse published crags, search by name, filter by area and by family rating (babies, ages 2-4, ages 5+)
-- Crag detail page with photo gallery (lightbox), approach and base-area features, orientation, parking, map location link, family notes
-- Documentation pages written in Markdown (`content/`, served under `/docs/`), including terms, privacy and impressum
+- Browse published crags, search by name (with suggestions), filter by area and by family rating (babies, ages 2-4, ages 5+)
+- Crag detail page with photo gallery (lightbox), approach time and features, base-area features, orientation, parking, map location link, guidebooks, family notes, ratings and comments
+- Documentation and FAQ pages written in Markdown (`content/`, served under `/docs/`), including terms, privacy and impressum
+- Installable as an app on a phone (web app manifest, icons)
 
 **For registered users** (django-allauth, e-mail verification, password reset)
-- Create crags, edit and remove their own, upload photos with a category
-- Save as draft and submit for review; a "my crags" overview
+- Create crags, edit and remove their own, upload photos with a category; coordinates are filled in from the first photo with a location if left empty
+- Save as draft and submit for review; a "my crags" overview with status and the reviewer's reason; a message thread with the reviewers
+- Add guidebooks (shared between crags) while editing a crag
+- Rate a crag for family suitability and comment on it
+- **Suggest a change** to someone else's published crag (topic, text, photos); the creator and moderators answer in a private thread and close it as done or declined
+- Profile with bio and avatar, public or private
+- Notifications: in-app list with an unread counter, e-mail and web push (per type, set in the notification settings)
 
 **For staff, Crag Managers and superusers**
-- Review submissions in the Django admin (publish, return or reject), correct data, manage areas and guidebooks; remove crags (superusers can restore or permanently delete them and manage users)
-- `/stats/`: charts of registered users and crags over time
+- Moderation queue at `/moderation/`: publish, request changes (with a reason) or reject; Crag Managers can also publish directly and edit published crags
+- Django admin: correct data, manage areas, guidebooks and features, clean up review threads; remove crags (superusers can restore or permanently delete them and manage users)
+- Delete any comment
+- `/stats/`: charts of visitors, registered users and crags over time
 - Who may do what: [docs/roles-and-permissions.md](docs/roles-and-permissions.md)
 
 **Photos** are validated and processed on upload: max. 15 MB, EXIF rotation applied, resized to 1,600 px, re-encoded as WebP; HEIC/HEIF is supported. Details in [docs/technical-stack.md](docs/technical-stack.md).

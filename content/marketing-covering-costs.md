@@ -1,15 +1,19 @@
 ---
 tags: [faq]
-order: 3
+section: About gr8base
+order: 5
 ---
-# How much does gr8base cost and how is it financed
 
-## Cost Structure
-Besides many unpaid hours of development (code and concept) gr8base has real costs. Currently very limited as the the application runs on budget homeserver but the aim is to switch to a managed Server.
+# How much does gr8base cost and how is it financed?
 
-- Domain: 10€/ year
+## Cost structure
+
+Besides many unpaid hours of development (code and concept), gr8base has real costs. They are currently very limited, because the application runs on a budget home server. The aim is to switch to a managed server.
+
+- Domain: 10 € per year
 - Server: "free"
-- Devolpment: unpaid
+- Development: unpaid
 
-## Ideas to finance ourselfs
- we will approach climbing hardware manufacturers and ask about advertising opportunities.
+## Ideas to finance ourselves
+
+We will approach climbing hardware manufacturers and ask about advertising opportunities.

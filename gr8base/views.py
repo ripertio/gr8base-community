@@ -17,6 +17,7 @@ INDEX_SLUG = "index"
 FRONTMATTER_DELIMITER = "---"
 LISTED_TAG = "faq"
 UNORDERED = 10**6
+DEFAULT_SECTION = "More"
 
 
 def split_frontmatter(text):
@@ -63,11 +64,16 @@ def page_title(path, body):
 
 
 def render_markdown(text):
-    md = markdown.Markdown(
-        extensions=["toc", "tables", "fenced_code"],
-        extension_configs={"toc": {"toc_depth": "2-3"}},
-    )
-    return md.convert(text), md.toc
+    # "toc" only gives the headings ids (anchor links); no outline is shown
+    return markdown.markdown(text, extensions=["toc", "tables", "fenced_code"])
+
+
+def group_by_section(pages):
+    """[(section, [pages])]; sections in the order of their first page."""
+    sections = {}
+    for page in pages:
+        sections.setdefault(page["section"], []).append(page)
+    return list(sections.items())
 
 
 def doc_index(request):
@@ -75,7 +81,7 @@ def doc_index(request):
     index_path = CONTENT_DIR / f"{INDEX_SLUG}.md"
     if index_path.is_file():
         _, index_body = read_page(index_path)
-        intro, _ = render_markdown(index_body)
+        intro = render_markdown(index_body)
 
     pages = []
     for path in sorted(CONTENT_DIR.glob("*.md")):
@@ -87,10 +93,11 @@ def doc_index(request):
                 "slug": path.stem,
                 "title": page_title(path, body),
                 "order": page_order(meta),
+                "section": meta.get("section", "").strip() or DEFAULT_SECTION,
             })
 
     pages.sort(key=lambda page: (page["order"], page["title"].lower()))
-    return render(request, "docs.html", {"intro": intro, "pages": pages})
+    return render(request, "docs.html", {"intro": intro, "sections": group_by_section(pages)})
 
 
 def doc_page(request, slug):
@@ -99,11 +106,11 @@ def doc_page(request, slug):
         raise Http404("Page not found")
 
     _, body = read_page(path)
-    html, toc = render_markdown(body)
+    html = render_markdown(body)
     return render(
         request,
         "docs_page.html",
-        {"title": page_title(path, body), "content": html, "toc": toc},
+        {"title": page_title(path, body), "content": html},
     )
 
 

@@ -1,6 +1,7 @@
 ---
 tags: [faq]
-order: 4
+section: Project
+order: 6
 ---
 
 # How can I follow the development of gr8base?

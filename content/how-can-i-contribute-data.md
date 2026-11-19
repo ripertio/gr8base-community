@@ -1,6 +1,7 @@
 ---
 tags: [faq]
-order: 7
+section: How can i contribute
+order: 4
 ---
 
 # How can I contribute data?
